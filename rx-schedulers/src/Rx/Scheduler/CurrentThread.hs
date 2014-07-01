@@ -1,9 +1,9 @@
 module Rx.Scheduler.CurrentThread where
 
 import Control.Concurrent (threadDelay)
-import Tiempo (toMilliSeconds)
+import Tiempo             (toMilliSeconds)
 
-import Rx.Disposable (emptyDisposable)
+import Rx.Disposable      (emptyDisposable)
 import Rx.Scheduler.Types
 
 currentThread :: Scheduler Sync
@@ -13,7 +13,7 @@ currentThread = Scheduler {
         emptyDisposable
 
   , _timedSchedule = \interval action -> do
-       threadDelay (toMilliSeconds interval)
+       threadDelay (floor $ toMilliSeconds interval)
        action
        emptyDisposable
   }

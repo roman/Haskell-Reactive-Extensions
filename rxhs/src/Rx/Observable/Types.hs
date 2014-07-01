@@ -1,9 +1,14 @@
-{-# LANGUAGE RankNTypes #-}
 module Rx.Observable.Types where
 
-import Control.Applicative (Applicative(..))
-import Control.Exception (SomeException, catch)
-import Rx.Disposable (Disposable, emptyDisposable)
+import Control.Applicative (Applicative (..))
+import Control.Exception   (AsyncException (ThreadKilled), Handler (..),
+                            SomeException, catches, throw)
+
+import           Rx.Disposable (Disposable, emptyDisposable,
+                                newCompositeDisposable,
+                                newSingleAssignmentDisposable)
+import qualified Rx.Disposable as Disposable
+import           Rx.Scheduler  (Async, Scheduler, Sync, currentThread, schedule)
 
 --------------------------------------------------------------------------------
 
@@ -13,14 +18,14 @@ class IObserver observer where
   onCompleted :: observer a -> IO ()
 
 class IObservable observable where
-  onSubscribe :: IObserver observer => observable s a -> observer a -> IO Disposable
+  onSubscribe :: observable s a -> Observer a -> IO Disposable
 
 --------------------------------------------------------------------------------
 
 data Observer a =
   Observer {
-    _onNext :: a -> IO ()
-  , _onError :: SomeException -> IO ()
+    _onNext      :: a -> IO ()
+  , _onError     :: SomeException -> IO ()
   , _onCompleted :: IO ()
   }
 
@@ -32,8 +37,7 @@ instance IObserver Observer where
 --------------------------------------------------------------------------------
 
 newtype Observable s a =
-  Observable { _onSubscribe ::
-                  forall observer . IObserver observer => observer a -> IO Disposable }
+  Observable { _onSubscribe :: Observer a -> IO Disposable }
 
 instance IObservable Observable where
   onSubscribe = _onSubscribe
@@ -59,4 +63,25 @@ safeSubscribe source nextHandler0 errHandler0 complHandler0 =
     subscribe source nextHandler errHandler0 complHandler0
   where
     nextHandler v =
-      nextHandler0 v `catch` errHandler0
+      nextHandler0 v `catches` [ Handler (\err@ThreadKilled -> throw err)
+                               , Handler errHandler0]
+
+createObservable :: Scheduler s
+                 -> (Observer a -> IO Disposable)
+                 -> Observable s a
+createObservable scheduler action = Observable $ \observer -> do
+  obsDisposable    <- newCompositeDisposable
+  actionDisposable <- newSingleAssignmentDisposable
+  threadDisposable <-
+    schedule scheduler $ action observer >>=
+      flip Disposable.set actionDisposable
+
+  Disposable.append threadDisposable obsDisposable
+  Disposable.append actionDisposable obsDisposable
+
+  return $ Disposable.toDisposable obsDisposable
+
+syncObservable :: Scheduler Sync
+               -> (Observer a -> IO Disposable)
+               -> Observable Sync a
+syncObservable action = createObservable currentThread

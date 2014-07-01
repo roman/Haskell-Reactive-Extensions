@@ -5,19 +5,26 @@ module Rx.Observable
        , IObserver (..)
        , Async
        , Sync
+       , Disposable
        , subscribe
        , safeSubscribe
+       , dispose
        , module Observable
        ) where
 
-import Control.Applicative (Applicative(..))
-import Control.Monad (ap)
+import Control.Applicative (Applicative (..))
+import Control.Monad       (ap)
 
-import Rx.Scheduler (Scheduler, Sync, Async, newThread, schedule)
-import qualified Rx.Observable.Map as Observable
-import qualified Rx.Observable.Filter as Observable
-import qualified Rx.Observable.Merge as Observable
-import qualified Rx.Observable.Timer as Observable
+import qualified Rx.Observable.Filter    as Observable
+import qualified Rx.Observable.Map       as Observable
+import qualified Rx.Observable.Merge     as Observable
+import qualified Rx.Observable.Replicate as Observable
+import qualified Rx.Observable.Take      as Observable
+import qualified Rx.Observable.Timer     as Observable
+
+
+import Rx.Disposable (Disposable, dispose)
+import Rx.Scheduler  (Async, Scheduler, Sync, newThread, schedule)
 
 import Rx.Observable.Types
 
