@@ -6,7 +6,7 @@ module Rx.Actor.Actor where
 
 import Control.Monad (void, when)
 import Control.Monad.Trans (liftIO)
-import Control.Monad.State (execStateT)
+import Control.Monad.State.Strict (execStateT)
 
 import Control.Exception (try, SomeException)
 import Control.Concurrent (forkIO, killThread, myThreadId, yield)
@@ -46,6 +46,7 @@ _spawnActor (Supervisor {..}) spawn = do
           , _actorQueue           = actorEvQueue
           , _actorCleanup         = actorDisposable
           , _actorDef             = gActorDef
+          , _actorEventBus        = _supervisorEventBus
           }
         putMVar actorVar actor
         return actor
@@ -93,10 +94,12 @@ _spawnActor (Supervisor {..}) spawn = do
             Nothing -> actorLoop actor st
             Just (EventHandler _ handler) -> do
               logMsg $ "[type: " ++ evType ++ "] Handling event"
-              result <- try $ execStateT (handler $ fromJust $ fromGenericEvent gev) st
+              result <- try $ execStateT (fromActorM . handler
+                                           $ fromJust $ fromGenericEvent gev)
+                                         (st, _supervisorEventBus)
               case result of
                 Left err  -> handleActorError actor err st gev
-                Right st' -> yield >> actorLoop actor st'
+                Right (st', _) -> yield >> actorLoop actor st'
 
         handleActorError actor err st gev = do
           putStrLn $ "Received error on " ++ getActorKey gActorDef ++ ": " ++ show err

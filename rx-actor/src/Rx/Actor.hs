@@ -84,12 +84,13 @@ numberAccumulator = defActor $ do
     receive failActor
   where
     accumulateNumber :: Int -> ActorM Int ()
-    accumulateNumber n = modifyActorState (+n)
+    accumulateNumber n = modifyState (+n)
 
     printNumber :: PrintNumber -> ActorM Int ()
     printNumber _ = do
-      n <- getActorState
+      n <- getState
       liftIO $ putStrLn $ "acc => " ++ show n
+      emit (Fail ())
 
     failActor :: Fail -> ActorM Int ()
     failActor = error "I want to fail"
@@ -112,6 +113,8 @@ main = do
     emitEvent sup (1 :: Int)
     emitEvent sup (2 :: Int)
     onNext evBus $ toGenericEvent (3 :: Int)
+    emitEvent sup (PrintNumber ())
+    emitEvent sup (PrintNumber ())
     emitEvent sup (PrintNumber ())
 
   joinSupervisorThread sup `finally` stopSupervisor sup
