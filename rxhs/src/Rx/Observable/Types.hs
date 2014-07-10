@@ -8,31 +8,62 @@ import           Rx.Disposable (Disposable, emptyDisposable,
                                 newCompositeDisposable,
                                 newSingleAssignmentDisposable)
 import qualified Rx.Disposable as Disposable
-import           Rx.Scheduler  (Async, Scheduler, Sync, currentThread, schedule)
+import           Rx.Scheduler  (Async, IScheduler, Sync, currentThread, schedule)
 
 --------------------------------------------------------------------------------
 
 class IObserver observer where
-  onNext :: observer a -> a -> IO ()
-  onError :: observer a -> SomeException -> IO ()
-  onCompleted :: observer a -> IO ()
+  onNext :: observer v -> v -> IO ()
+  onError :: observer v -> SomeException -> IO ()
+  onCompleted :: observer v -> IO ()
+
+class ToObserver observer where
+  toObserver :: observer a -> Observer a
 
 class IObservable observable where
   onSubscribe :: observable s a -> Observer a -> IO Disposable
 
+class ToAsyncObservable observable where
+  toAsyncObservable :: observable a -> Observable Async a
+
 --------------------------------------------------------------------------------
 
-data Observer a =
-  Observer {
-    _onNext      :: a -> IO ()
-  , _onError     :: SomeException -> IO ()
-  , _onCompleted :: IO ()
+data Notification v
+  = OnNext v
+  | OnError SomeException
+  | OnCompleted
+  deriving (Show)
+
+--------------------------------------------------------------------------------
+
+data Subject v =
+  Subject {
+    _subjectOnSubscribe        :: Observer v -> IO Disposable
+  , _subjectOnEmitNotification :: Notification v -> IO ()
   }
 
+instance ToObserver Subject where
+  toObserver subject = Observer (_subjectOnEmitNotification subject)
+
+instance ToAsyncObservable Subject where
+  toAsyncObservable = Observable . _subjectOnSubscribe
+
+instance IObserver Subject where
+  onNext subject = _subjectOnEmitNotification subject . OnNext
+  onError subject = _subjectOnEmitNotification subject . OnError
+  onCompleted subject = _subjectOnEmitNotification subject OnCompleted
+
+--------------------------------------------------------------------------------
+
+newtype Observer v = Observer (Notification v -> IO ())
+
+instance ToObserver Observer where
+  toObserver = id
+
 instance IObserver Observer where
-  onNext = _onNext
-  onError = _onError
-  onCompleted = _onCompleted
+  onNext (Observer f) v    = f $ OnNext v
+  onError (Observer f) err = f $ OnError err
+  onCompleted (Observer f) = f OnCompleted
 
 --------------------------------------------------------------------------------
 
@@ -51,7 +82,17 @@ subscribe :: (IObservable observable)
           -> IO ()
           -> IO Disposable
 subscribe source nextHandler errHandler complHandler =
-  onSubscribe source $ Observer nextHandler errHandler complHandler
+    onSubscribe source $ Observer observerFn
+  where
+    observerFn (OnNext v) = nextHandler v
+    observerFn (OnError err) = errHandler err
+    observerFn OnCompleted = complHandler
+
+subscribeObserver
+  :: (IObservable observable, ToObserver observer)
+  => observable s a -> observer a -> IO Disposable
+subscribeObserver source observer =
+  onSubscribe source $ toObserver observer
 
 safeSubscribe :: (IObservable observable)
           => observable s v
@@ -63,10 +104,14 @@ safeSubscribe source nextHandler0 errHandler0 complHandler0 =
     subscribe source nextHandler errHandler0 complHandler0
   where
     nextHandler v =
-      nextHandler0 v `catches` [ Handler (\err@ThreadKilled -> throw err)
-                               , Handler errHandler0]
+      (v `seq` nextHandler0 v)
+        `catches` [ Handler (\err@ThreadKilled -> throw err)
+                  , Handler errHandler0]
 
-createObservable :: Scheduler s
+--------------------------------------------------------------------------------
+
+createObservable :: IScheduler scheduler
+                 => scheduler s
                  -> (Observer a -> IO Disposable)
                  -> Observable s a
 createObservable scheduler action = Observable $ \observer -> do
@@ -81,7 +126,8 @@ createObservable scheduler action = Observable $ \observer -> do
 
   return $ Disposable.toDisposable obsDisposable
 
-syncObservable :: Scheduler Sync
-               -> (Observer a -> IO Disposable)
-               -> Observable Sync a
-syncObservable action = createObservable currentThread
+-- syncObservable :: IScheduler scheduler
+--                => scheduler Sync
+--                -> (Observer a -> IO Disposable)
+--                -> Observable Sync a
+-- syncObservable action = createObservable currentThread

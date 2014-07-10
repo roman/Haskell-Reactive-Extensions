@@ -17,19 +17,29 @@ cabal-version:       >=1.10
 
 library
   exposed-modules:
-    Rx.Observable
+    Rx.Observable,
+    Rx.Subject
   other-modules:
+    Rx.Notification,
     Rx.Observable.Types,
     Rx.Observable.Filter,
+    Rx.Observable.Fold,
     Rx.Observable.Map,
     Rx.Observable.Merge,
+    Rx.Observable.Replicate,
     Rx.Observable.Scheduler,
-    Rx.Observable.Timer
+    Rx.Observable.Take,
+    Rx.Observable.Timer,
+    Rx.Observable.Timeout,
+    Rx.Subject.PublishSubject
+
   -- other-extensions:
   build-depends:
     base >=4.7 && <4.8,
     containers,
+    unordered-containers,
     stm,
+    time,
     tiempo,
 
     rx-disposable,
