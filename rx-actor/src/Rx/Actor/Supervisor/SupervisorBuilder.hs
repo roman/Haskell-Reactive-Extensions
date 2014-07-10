@@ -52,7 +52,7 @@ emptySupervisorDef :: SupervisorDef
 emptySupervisorDef =
   SupervisorDef {
     _supervisorStrategy = OneForOne
-  , _supervisorBackoffDelayFn = seconds . (*2)
+  , _supervisorBackoffDelayFn = seconds . (2^)
   , _supervisorMaxRestartAttempts = 5
   , _supervisorDefChildren = []
   }

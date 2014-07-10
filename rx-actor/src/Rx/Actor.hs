@@ -1,7 +1,8 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-module Rx.Actor where
+-- module Rx.Actor where
+module Main where
 
 import Control.Exception (finally, fromException, ErrorCall(..),)
 
@@ -29,6 +30,7 @@ newtype Fail = Fail () deriving (Typeable, Show)
 numberPrinter :: ActorDef ()
 numberPrinter = defActor $ do
     actorKey "printer"
+    startDelay (seconds 5)
 
     preStart $ do
       putStrLn "preStart printer"
@@ -89,8 +91,8 @@ numberAccumulator = defActor $ do
     printNumber :: PrintNumber -> ActorM Int ()
     printNumber _ = do
       n <- getState
-      liftIO $ putStrLn $ "acc => " ++ show n
       emit (Fail ())
+      liftIO $ putStrLn $ "acc => " ++ show n
 
     failActor :: Fail -> ActorM Int ()
     failActor = error "I want to fail"
@@ -99,7 +101,7 @@ numberAccumulator = defActor $ do
 mySystem :: SupervisorDef
 mySystem = defSupervisor $ do
   strategy OneForOne
-  backoff $ \attempt -> seconds $ attempt * 2
+  backoff $ \attempt -> seconds $ 2 ^ attempt
   addChild numberPrinter
   addChild numberAccumulator
 
@@ -113,6 +115,8 @@ main = do
     emitEvent sup (1 :: Int)
     emitEvent sup (2 :: Int)
     onNext evBus $ toGenericEvent (3 :: Int)
+    emitEvent sup (PrintNumber ())
+    emitEvent sup (PrintNumber ())
     emitEvent sup (PrintNumber ())
     emitEvent sup (PrintNumber ())
     emitEvent sup (PrintNumber ())

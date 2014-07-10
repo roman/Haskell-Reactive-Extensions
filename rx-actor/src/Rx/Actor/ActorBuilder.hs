@@ -6,9 +6,9 @@ import Control.Concurrent (ThreadId, forkIO, forkOS)
 import Control.Exception (SomeException)
 import Control.Monad.Free
 
-import Tiempo (seconds)
+import Tiempo (TimeInterval, seconds)
 import Data.Typeable ( Typeable
-                     ,  typeOf, typeOf1
+                     , typeOf, typeOf1
                      , typeRepArgs, typeRepTyCon, splitTyConApp )
 
 import qualified Data.HashMap.Strict as HashMap
@@ -17,6 +17,7 @@ import Rx.Actor.Types
 
 data ActorBuilderF st x
   = SetActorKeyI String x
+  | SetStartDelayI TimeInterval x
   | PreStartI (IO (InitResult st)) x
   | PostStopI (IO ()) x
   | PreRestartI  (st -> SomeException -> GenericEvent -> IO ()) x
@@ -28,6 +29,7 @@ data ActorBuilderF st x
 
 instance Functor (ActorBuilderF st) where
   fmap f (SetActorKeyI key x) = SetActorKeyI key (f x)
+  fmap f (SetStartDelayI delay x) = SetStartDelayI delay (f x)
   fmap f (PreStartI action x) = PreStartI action (f x)
   fmap f (PostStopI action x) = PostStopI action (f x)
   fmap f (PreRestartI action x) = PreRestartI action (f x)
@@ -47,6 +49,9 @@ type ActorBuilder st = Free (ActorBuilderF st)
 
 actorKey :: String -> ActorBuilder st ()
 actorKey key = liftF $ SetActorKeyI key ()
+
+startDelay :: TimeInterval -> ActorBuilder st ()
+startDelay delay = liftF $ SetStartDelayI delay ()
 
 -- |
 -- Example:
@@ -126,6 +131,9 @@ defActor build = eval emptyActorDef build
 
     eval actorDef (Free (SetActorKeyI key next)) =
       eval (actorDef { _actorChildKey = Just key }) next
+
+    eval actorDef (Free (SetStartDelayI delay next)) =
+      eval (actorDef { _actorDelayAfterStart = delay }) next
 
     eval actorDef (Free (PreStartI preStart next)) =
       eval (actorDef {_actorPreStart = preStart}) next

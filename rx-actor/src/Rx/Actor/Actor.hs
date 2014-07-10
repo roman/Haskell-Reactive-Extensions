@@ -63,6 +63,7 @@ _spawnActor (Supervisor {..}) spawn = do
 
         newActor actor = do
           result <- _actorPreStart actorDef
+          threadDelay $ _actorDelayAfterStart actorDef
           case result of
             InitFailure err ->
               _sendToSupervisor

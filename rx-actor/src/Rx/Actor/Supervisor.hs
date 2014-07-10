@@ -144,9 +144,9 @@ _createSupervisor evBus supDef@(SupervisorDef {..}) = do
               supFail err actor
             Restart -> do
               let restartAttempt = getRestartAttempts gActorDef
-                  gActorDef1 = incRestartAttempt gActorDef
                   restartDelay = _supervisorBackoffDelayFn restartAttempt
 
+              gActorDef1 <- incRestartAttempt gActorDef
               supRemoveActor gActorDef
               logMsg $ "Supervisor: Restarting actor " ++ getActorKey gActorDef  ++
                        " with delay " ++ show restartDelay
@@ -156,7 +156,7 @@ _createSupervisor evBus supDef@(SupervisorDef {..}) = do
                 , _spawnQueue       = _actorQueue actor
                 , _spawnError        = err
                 , _spawnFailedEvent  = failedEv
-                , _spawnActorDef     = gActorDef
+                , _spawnActorDef     = gActorDef1
                 , _spawnDelay        = restartDelay
                 }
 
