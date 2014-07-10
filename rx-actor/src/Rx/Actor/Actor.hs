@@ -8,7 +8,7 @@ import Control.Monad (void, when)
 import Control.Monad.Trans (liftIO)
 import Control.Monad.State.Strict (execStateT)
 
-import Control.Exception (try, SomeException)
+import Control.Exception (SomeException(..), fromException, try)
 import Control.Concurrent (forkIO, killThread, myThreadId, yield)
 import Control.Concurrent.MVar (newEmptyMVar, takeMVar, putMVar)
 import Control.Concurrent.STM (atomically, newTChanIO, readTChan, writeTChan)
@@ -102,28 +102,40 @@ _spawnActor (Supervisor {..}) spawn = do
                 Left err  -> handleActorError actor err st gev
                 Right (st', _) -> yield >> actorLoop actor st'
 
-        handleActorError actor err st gev = do
+        handleActorError actor err@(SomeException innerErr) st gev = do
           putStrLn $ "Received error on " ++ getActorKey gActorDef ++ ": " ++ show err
-          let restartDirective = _actorRestartDirective actorDef err
-          case restartDirective of
-            Stop -> do
-              logMsg $ "Stop actor (error: " ++ show err ++ ")"
-              _actorPostStop actorDef
-            Resume -> do
-              logMsg $ "Resume actor (error: " ++ show err ++ ")"
-              actorLoop actor st
-            _ -> do
-              when (restartDirective == Restart)
-                $ logError_ $ _actorPreRestart actorDef st err gev
-              logMsg "Notify supervisor to restart actor"
-              _sendToSupervisor
-                      $ ActorFailedWithError {
-                        _supEvTerminatedState = st
-                      , _supEvTerminatedFailedEvent = gev
-                      , _supEvTerminatedError = err
-                      , _supEvTerminatedActor = actor
-                      , _supEvTerminatedDirective = restartDirective
-                      }
+          let errType = show $ typeOf innerErr
+              restartDirectives = _actorRestartDirective actorDef
+          case HashMap.lookup errType restartDirectives of
+            Nothing ->
+              sendErrorToSupervisor Raise actor err st gev
+            Just (ErrorHandler errHandler) -> do
+              restartDirective <- errHandler (fromJust $ fromException err) st
+              case restartDirective of
+                Stop -> do
+                  logMsg $ "[error: " ++ show err ++ "] Stop actor"
+                  _actorPostStop actorDef
+                Resume -> do
+                  logMsg $ "[error: " ++ show err ++ "] Resume actor"
+                  actorLoop actor st
+                _ -> do
+                  logMsg $ "[error: " ++ show err ++ "] Send message to supervisor actor"
+                  sendErrorToSupervisor restartDirective actor err st gev
+
+
+        sendErrorToSupervisor restartDirective actor err st gev = do
+          when (restartDirective == Restart)
+            $ logError_ $ _actorPreRestart actorDef st err gev
+          logMsg "Notify supervisor to restart actor"
+          _sendToSupervisor
+                  $ ActorFailedWithError {
+                    _supEvTerminatedState = st
+                  , _supEvTerminatedFailedEvent = gev
+                  , _supEvTerminatedError = err
+                  , _supEvTerminatedActor = actor
+                  , _supEvTerminatedDirective = restartDirective
+                  }
+
         logMsg msg = do
           let sep = case msg of
                       ('[':_) -> ""

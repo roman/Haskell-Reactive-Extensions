@@ -14,7 +14,7 @@ import Control.Concurrent.STM ( TVar, TChan, atomically
                               , newTChanIO, readTChan, writeTChan
                               , newTVarIO, readTVar, modifyTVar, writeTVar )
 
-import Control.Exception (SomeException, try, finally, throw)
+import Control.Exception (Exception, SomeException, try, finally, throw)
 
 import Control.Applicative (Applicative)
 import Control.Monad (forM_, unless, void, when)
@@ -74,10 +74,8 @@ data RestartDirective
   | Restart
   deriving (Show, Eq, Ord, Typeable)
 
-data SupervisorStrategy
-  = OneForOne
-  | AllForOne
-  deriving (Show, Eq, Ord, Typeable)
+data ErrorHandler st
+  = forall e . (Typeable e, Exception e) => ErrorHandler (e -> st -> IO RestartDirective)
 
 data ActorDef st
   = ActorDef {
@@ -87,7 +85,7 @@ data ActorDef st
   , _actorPostStop         :: !(IO ())
   , _actorPreRestart       :: !(st -> SomeException -> GenericEvent -> IO ())
   , _actorPostRestart      :: !(st -> SomeException -> GenericEvent -> IO (InitResult st))
-  , _actorRestartDirective :: !(SomeException -> RestartDirective)
+  , _actorRestartDirective :: !(HashMap String (ErrorHandler st))
   , _actorDelayAfterStart  :: !TimeInterval
   , _actorReceive          :: !(HashMap String (EventHandler st))
   , _actorRestartAttempt   :: !Int
@@ -147,6 +145,11 @@ data SupervisionEvent
       _supEvTerminatedActorDef :: !GenericActorDef
     }
   deriving (Typeable)
+
+data SupervisorStrategy
+  = OneForOne
+  | AllForOne
+  deriving (Show, Eq, Ord, Typeable)
 
 data SupervisorDef
   = SupervisorDef {

@@ -4,7 +4,7 @@
 -- module Rx.Actor where
 module Main where
 
-import Control.Exception (finally, fromException, ErrorCall(..),)
+import Control.Exception (ErrorCall(..), AssertionFailed, finally, fromException, assert)
 
 import Data.Typeable (Typeable)
 
@@ -25,7 +25,8 @@ import Tiempo (seconds)
 import Tiempo.Concurrent (threadDelay)
 
 newtype PrintNumber = PrintNumber () deriving (Typeable, Show)
-newtype Fail = Fail () deriving (Typeable, Show)
+newtype CallFail = CallFail () deriving (Typeable, Show)
+newtype AssertFail = AssertFail () deriving (Typeable, Show)
 
 numberPrinter :: ActorDef ()
 numberPrinter = defActor $ do
@@ -56,10 +57,11 @@ numberAccumulator :: ActorDef Int
 numberAccumulator = defActor $ do
     actorKey "accum"
 
-    onError $ \err ->
-      case fromException err of
-        Just (ErrorCall _) -> Restart
-        Nothing -> Resume
+    onError $ \(err :: ErrorCall) _st -> return Restart
+    onError $ \(err :: ErrorCall) _st -> return Restart
+    onError $ \(err :: AssertionFailed) _st -> do
+      putStrLn "Resuming assertion failed error"
+      return $ Resume
 
     preStart $ do
       putStrLn "preStart accum"
@@ -82,8 +84,11 @@ numberAccumulator = defActor $ do
     desc "Prints number on terminal"
     receive printNumber
 
-    desc "Fails the actor"
-    receive failActor
+    desc "Fails the actor via ErrorCall"
+    receive callError
+
+    desc "Fails the actor via AssertionFailed"
+    receive assertError
   where
     accumulateNumber :: Int -> ActorM Int ()
     accumulateNumber n = modifyState (+n)
@@ -91,11 +96,14 @@ numberAccumulator = defActor $ do
     printNumber :: PrintNumber -> ActorM Int ()
     printNumber _ = do
       n <- getState
-      emit (Fail ())
+      emit (CallFail ())
       liftIO $ putStrLn $ "acc => " ++ show n
 
-    failActor :: Fail -> ActorM Int ()
-    failActor = error "I want to fail"
+    callError :: CallFail -> ActorM Int ()
+    callError = error "I want to fail"
+
+    assertError :: AssertFail -> ActorM Int ()
+    assertError = assert False $ undefined
 
 
 mySystem :: SupervisorDef
@@ -111,14 +119,15 @@ main = do
   print $ length (_supervisorDefChildren mySystem)
   sup <- startSupervisorWithEventBus evBus mySystem
   void . async $ do
-    threadDelay (seconds 3)
+    threadDelay $ seconds 3
     emitEvent sup (1 :: Int)
     emitEvent sup (2 :: Int)
+    emitEvent sup (AssertFail ())
     onNext evBus $ toGenericEvent (3 :: Int)
     emitEvent sup (PrintNumber ())
-    emitEvent sup (PrintNumber ())
-    emitEvent sup (PrintNumber ())
-    emitEvent sup (PrintNumber ())
-    emitEvent sup (PrintNumber ())
+    -- emitEvent sup (PrintNumber ())
+    -- emitEvent sup (PrintNumber ())
+    -- emitEvent sup (PrintNumber ())
+    -- emitEvent sup (PrintNumber ())
 
   joinSupervisorThread sup `finally` stopSupervisor sup

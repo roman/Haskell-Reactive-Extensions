@@ -1,9 +1,10 @@
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ExistentialQuantification #-}
 module Rx.Actor.ActorBuilder where
 
 import Control.Concurrent (ThreadId, forkIO, forkOS)
-import Control.Exception (SomeException)
+import Control.Exception (Exception, SomeException)
 import Control.Monad.Free
 
 import Tiempo (TimeInterval, seconds)
@@ -22,7 +23,8 @@ data ActorBuilderF st x
   | PostStopI (IO ()) x
   | PreRestartI  (st -> SomeException -> GenericEvent -> IO ()) x
   | PostRestartI (st -> SomeException -> GenericEvent -> IO (InitResult st)) x
-  | OnErrorI (SomeException -> RestartDirective)  x
+  | forall e. (Typeable e, Exception e)
+      => OnErrorI (e -> st -> IO RestartDirective)  x
   | HandlerDescI String x
   | SetForkerI (IO () -> IO ThreadId) x
   | forall t . Typeable t => HandlerI (t -> ActorM st ()) x
@@ -96,7 +98,8 @@ postRestart :: (st -> SomeException -> GenericEvent -> IO (InitResult st))
             -> ActorBuilder st ()
 postRestart action = liftF $ PostRestartI action ()
 
-onError :: (SomeException -> RestartDirective) -> ActorBuilder st ()
+onError :: (Typeable e, Exception e)
+        => (e -> st -> IO RestartDirective) -> ActorBuilder st ()
 onError action = liftF $ OnErrorI action ()
 
 useBoundedThread :: Bool -> ActorBuilder st ()
@@ -122,7 +125,9 @@ defActor build = eval emptyActorDef build
         , _actorPostStop = return ()
         , _actorPreRestart = \_ _ _ -> return ()
         , _actorPostRestart = \st _ _ -> return $ InitOk st
-        , _actorRestartDirective = const $ Restart
+        , _actorRestartDirective =
+         HashMap.singleton "SomeException"
+                            (ErrorHandler $ \(e :: SomeException) _ -> return Restart)
         , _actorReceive = HashMap.empty
         , _actorRestartAttempt = 0
         , _actorDelayAfterStart = seconds 0
@@ -151,7 +156,7 @@ defActor build = eval emptyActorDef build
       eval (actorDef { _actorForker = forker }) next
 
     eval actorDef (Free (OnErrorI onError next)) =
-      eval (actorDef { _actorRestartDirective = onError}) next
+      eval (addErrorHandler actorDef (ErrorHandler onError)) next
 
     eval actorDef (Free (HandlerDescI str (Free (HandlerI handler next)))) =
       eval (addReceiveHandler actorDef (EventHandler str handler)) next
@@ -159,17 +164,39 @@ defActor build = eval emptyActorDef build
     eval actorDef (Free (HandlerI handler next)) =
       eval (addReceiveHandler actorDef (EventHandler "" handler)) next
 
+
+-- NOTE: Both addReceiveHandler and addErrorHandler have the same exact code
+-- by using Lenses we can make a polymorphic function that can receive the
+-- the setting attribute as a parameter
+
 addReceiveHandler :: ActorDef st -> EventHandler st -> ActorDef st
 addReceiveHandler actorDef handler@(EventHandler _ fn) = do
-  case getHandlerParamType fn of
+  case getHandlerParamType1 fn of
     Just paramType ->
-      let actorRecieve' = HashMap.insert paramType handler (_actorReceive actorDef)
+      let actorRecieve' = HashMap.insertWith (\_ _ -> handler)
+                                             paramType
+                                             handler
+                                             (_actorReceive actorDef)
       in actorDef { _actorReceive = actorRecieve' }
     Nothing ->
       error "Weird: didn't receive a valid handler that can be inspected"
 
-getHandlerParamType :: Typeable m => m a -> Maybe String
-getHandlerParamType a =
+addErrorHandler :: ActorDef st -> ErrorHandler st -> ActorDef st
+addErrorHandler actorDef errorHandler@(ErrorHandler fn) = do
+  case getHandlerParamType1 fn of
+    Just paramType ->
+      let actorRestartDirective' =
+            HashMap.insertWith (\_ _ -> errorHandler)
+                               paramType
+                               errorHandler
+                               (_actorRestartDirective actorDef)
+      in actorDef { _actorRestartDirective = actorRestartDirective' }
+    Nothing ->
+      error "Weird: didn't receive a valid handler that can be inspected"
+
+
+getHandlerParamType1 :: Typeable m => m a -> Maybe String
+getHandlerParamType1 a =
     if tyCon == fnTy
        then Just . show $ head tyArgs
        else Nothing
