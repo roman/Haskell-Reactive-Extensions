@@ -1,4 +1,7 @@
+{-# LANGUAGE DeriveDataTypeable #-}
 module Rx.Observable.Types where
+
+import Data.Typeable (Typeable)
 
 import Control.Applicative (Applicative (..))
 import Control.Exception   (AsyncException (ThreadKilled), Handler (..),
@@ -14,8 +17,15 @@ import           Rx.Scheduler  (Async, IScheduler, Sync, currentThread, schedule
 
 class IObserver observer where
   onNext :: observer v -> v -> IO ()
+  onNext ob v = emitNotification ob (OnNext v)
+
   onError :: observer v -> SomeException -> IO ()
+  onError ob err = emitNotification ob (OnError err)
+
   onCompleted :: observer v -> IO ()
+  onCompleted ob = emitNotification ob OnCompleted
+
+  emitNotification :: observer v -> Notification v -> IO ()
 
 class ToObserver observer where
   toObserver :: observer a -> Observer a
@@ -32,7 +42,7 @@ data Notification v
   = OnNext v
   | OnError SomeException
   | OnCompleted
-  deriving (Show)
+  deriving (Show, Typeable)
 
 --------------------------------------------------------------------------------
 
@@ -41,6 +51,7 @@ data Subject v =
     _subjectOnSubscribe        :: Observer v -> IO Disposable
   , _subjectOnEmitNotification :: Notification v -> IO ()
   }
+  deriving (Typeable)
 
 instance ToObserver Subject where
   toObserver subject = Observer (_subjectOnEmitNotification subject)
@@ -49,21 +60,19 @@ instance ToAsyncObservable Subject where
   toAsyncObservable = Observable . _subjectOnSubscribe
 
 instance IObserver Subject where
-  onNext subject = _subjectOnEmitNotification subject . OnNext
-  onError subject = _subjectOnEmitNotification subject . OnError
-  onCompleted subject = _subjectOnEmitNotification subject OnCompleted
+  emitNotification = _subjectOnEmitNotification
 
 --------------------------------------------------------------------------------
 
-newtype Observer v = Observer (Notification v -> IO ())
+newtype Observer v
+  = Observer (Notification v -> IO ())
+  deriving (Typeable)
 
 instance ToObserver Observer where
   toObserver = id
 
 instance IObserver Observer where
-  onNext (Observer f) v    = f $ OnNext v
-  onError (Observer f) err = f $ OnError err
-  onCompleted (Observer f) = f OnCompleted
+  emitNotification (Observer f) = f
 
 --------------------------------------------------------------------------------
 

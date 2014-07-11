@@ -17,6 +17,7 @@ module Rx.Observable
        , Observable.foldLeft
        , Observable.timer
        , Observable.filter
+       , Observable.map
        ) where
 
 import Control.Applicative (Applicative (..))
