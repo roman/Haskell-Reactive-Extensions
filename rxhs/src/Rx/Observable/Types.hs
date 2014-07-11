@@ -3,15 +3,19 @@ module Rx.Observable.Types where
 
 import Data.Typeable (Typeable)
 
-import Control.Applicative (Applicative (..))
+import Control.Monad (forever)
+
 import Control.Exception   (AsyncException (ThreadKilled), Handler (..),
                             SomeException, catches, throw)
 
-import           Rx.Disposable (Disposable, emptyDisposable,
-                                newCompositeDisposable,
-                                newSingleAssignmentDisposable)
+import Control.Concurrent.STM (TChan, atomically, readTChan)
+
+import           Rx.Disposable ( Disposable, newCompositeDisposable
+                               , newSingleAssignmentDisposable )
 import qualified Rx.Disposable as Disposable
-import           Rx.Scheduler  (Async, IScheduler, Sync, currentThread, schedule)
+
+import           Rx.Scheduler  ( Async, IScheduler, Sync
+                               , currentThread, newThread, schedule )
 
 --------------------------------------------------------------------------------
 
@@ -84,6 +88,15 @@ instance IObservable Observable where
 
 --------------------------------------------------------------------------------
 
+instance ToAsyncObservable TChan where
+  toAsyncObservable chan = Observable $ \observer ->
+    schedule newThread $ forever $ do
+      ev <- atomically $ readTChan chan
+      onNext observer ev
+
+--------------------------------------------------------------------------------
+
+
 subscribe :: (IObservable observable)
           => observable s v
           -> (v -> IO ())
@@ -134,9 +147,3 @@ createObservable scheduler action = Observable $ \observer -> do
   Disposable.append actionDisposable obsDisposable
 
   return $ Disposable.toDisposable obsDisposable
-
--- syncObservable :: IScheduler scheduler
---                => scheduler Sync
---                -> (Observer a -> IO Disposable)
---                -> Observable Sync a
--- syncObservable action = createObservable currentThread
