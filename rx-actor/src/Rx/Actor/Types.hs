@@ -1,25 +1,16 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE DeriveDataTypeable #-}
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ExistentialQuantification #-}
 module Rx.Actor.Types where
 
+import Control.Concurrent (ThreadId)
+import Control.Concurrent.STM (TVar, TChan, newTChanIO)
 
-import Unsafe.Coerce (unsafeCoerce)
-
-
-import Control.Concurrent (ThreadId, forkIO, killThread, threadDelay, myThreadId)
-import Control.Concurrent.STM ( TVar, TChan, atomically
-                              , newTChanIO, readTChan, writeTChan
-                              , newTVarIO, readTVar, modifyTVar, writeTVar )
-
-import Control.Exception (Exception, SomeException, try, finally, throw)
+import Control.Exception (Exception, SomeException)
 
 import Control.Applicative (Applicative)
-import Control.Monad (forM_, unless, void, when)
 import Control.Monad.Trans (MonadIO(..))
-import Control.Monad.State.Strict (StateT, execStateT, get)
+import Control.Monad.State.Strict (StateT)
 
 import qualified Control.Monad.State.Strict as State
 
@@ -27,22 +18,16 @@ import Data.Typeable (Typeable, cast)
 import Data.HashMap.Strict (HashMap)
 import Data.Maybe (fromJust)
 
-import Tiempo (TimeInterval, seconds, toMicroSeconds)
+import Tiempo (TimeInterval)
 
-import Rx.Disposable ( BooleanDisposable, CompositeDisposable, Disposable
-                     , IDisposable, IDisposableContainer, ToDisposable
-                     , createDisposable, newCompositeDisposable, newBooleanDisposable
-                     , emptyDisposable, dispose )
-import Rx.Subject (Subject, newPublishSubject)
-import Rx.Observable ( Async, IObserver(..), Observable
-                     , safeSubscribe, toAsyncObservable )
+import Rx.Disposable ( Disposable, IDisposable, ToDisposable
+                     , dispose )
+import Rx.Subject (Subject)
+import Rx.Observable (IObserver(..))
 
-
-import qualified Rx.Observable as Observable
 import qualified Rx.Disposable as Disposable
 
 --------------------------------------------------------------------------------
-
 
 data GenericEvent = forall a . Typeable a => GenericEvent a
 
@@ -214,27 +199,10 @@ getRestartDelay = error "TODO"
 
 --------------------------------------------------------------------------------
 
-getState :: ActorM st st
-getState = ActorM $ fst `fmap` State.get
-
-setState :: st -> ActorM st ()
-setState st = ActorM $ do
-  (_, evBus) <- State.get
-  State.put (st, evBus)
-
-modifyState :: (st -> st) -> ActorM st ()
-modifyState fn = ActorM $ do
-  (st, evBus) <- State.get
-  State.put (fn st, evBus)
-
-emit :: Typeable ev => ev -> ActorM st ()
-emit ev = ActorM $ do
-  (_, evBus) <- State.get
-  liftIO $ onNext evBus $ toGenericEvent ev
-
-
---------------------------------------------------------------------------------
-
 createActorQueue :: SpawnInfo -> IO (TChan GenericEvent)
 createActorQueue (NewActor {}) = newTChanIO
 createActorQueue spawn@(RestartActor {}) = return $ _spawnQueue spawn
+
+
+emitEvent :: (IObserver o, Typeable t) => o GenericEvent -> t -> IO ()
+emitEvent ob = onNext ob . toGenericEvent

@@ -37,6 +37,7 @@ instance Functor (ActorBuilderF st) where
   fmap f (PreRestartI action x) = PreRestartI action (f x)
   fmap f (PostRestartI action x) = PostRestartI action (f x)
   fmap f (OnErrorI action x) = OnErrorI action (f x)
+  fmap f (SetForkerI forker x) = SetForkerI forker (f x)
   fmap f (HandlerDescI str x) = HandlerDescI str (f x)
   fmap f (HandlerI action x) = HandlerI action (f x)
 
@@ -102,9 +103,9 @@ onError :: (Typeable e, Exception e)
         => (e -> st -> IO RestartDirective) -> ActorBuilder st ()
 onError action = liftF $ OnErrorI action ()
 
-useBoundedThread :: Bool -> ActorBuilder st ()
-useBoundedThread False = liftF $ SetForkerI forkIO ()
-useBoundedThread True  = liftF $ SetForkerI forkOS ()
+useBoundThread :: Bool -> ActorBuilder st ()
+useBoundThread False = liftF $ SetForkerI forkIO ()
+useBoundThread True  = liftF $ SetForkerI forkOS ()
 
 desc :: String -> ActorBuilder st ()
 desc str = liftF $ HandlerDescI str ()

@@ -173,6 +173,7 @@ _createSupervisor evBus supDef@(SupervisorDef {..}) = do
           tid <- myThreadId
           putStrLn $ "[" ++ show tid ++ "] " ++ msg
 
-emitEvent :: Typeable t => Supervisor -> t -> IO ()
-emitEvent sup ev = onNext (_supervisorEventBus sup)
-                          (toGenericEvent ev)
+emitEventToSupervisor :: (Typeable t) => Supervisor -> t -> IO ()
+emitEventToSupervisor sup ev =
+  onNext (_supervisorEventBus sup)
+            (toGenericEvent ev)
