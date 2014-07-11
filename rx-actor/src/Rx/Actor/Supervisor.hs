@@ -24,18 +24,11 @@ import Rx.Disposable ( createDisposable, dispose
                      , newSingleAssignmentDisposable, toDisposable )
 import qualified Rx.Disposable as Disposable
 
+import Rx.Actor.EventBus (toGenericEvent)
 import Rx.Actor.Actor
 import Rx.Actor.Types
 
-{-
-defSupervisor $ do
-  strategy OneForOne
-  backoff $ \n -> seconds (n * 2)
-  maxRestarts 5
-  addChild actorDef1
-  addChild actorDef2
--}
-
+--------------------------------------------------------------------------------
 
 startSupervisorWithEventBus :: EventBus -> SupervisorDef -> IO Supervisor
 startSupervisorWithEventBus evBus supDef = _createSupervisor evBus supDef

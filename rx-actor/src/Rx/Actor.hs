@@ -9,12 +9,14 @@ module Rx.Actor
        , defActor, actorKey, preStart, postStop, preRestart, postRestart
        , onError, desc, receive, useBoundThread
        -- ^ * Actor message handlers API
-       , getState, setState, modifyState, getEventBus, emit, emitEvent
+       , getState, setState, modifyState, getEventBus, emit
        -- ^ * SupervisorBuilder API
        , defSupervisor, strategy, backoff, maxRestarts, addChild, buildChild
        -- ^ * Supervisor API
        , startSupervisor, startSupervisorWithEventBus, stopSupervisor
        , emitEventToSupervisor, joinSupervisorThread
+       -- ^ * EventBus API
+       , fromGenericEvent, toGenericEvent, emitEvent, typeOfEvent
        ) where
 
 import Control.Exception (ErrorCall(..), AssertionFailed, finally, fromException, assert)
@@ -26,6 +28,8 @@ import Control.Monad.Trans (liftIO)
 
 import Control.Concurrent.Async (async)
 
+import System.IO (BufferMode(LineBuffering), hSetBuffering, stdout)
+
 import Rx.Observable (onNext)
 import Rx.Subject (newPublishSubject)
 
@@ -34,9 +38,7 @@ import Tiempo.Concurrent (threadDelay)
 
 import Rx.Actor.ActorBuilder
 import Rx.Actor.Monad
-
-import System.IO (BufferMode(LineBuffering), hSetBuffering, stdout)
-
+import Rx.Actor.EventBus
 import Rx.Actor.Supervisor
 import Rx.Actor.Supervisor.SupervisorBuilder
 

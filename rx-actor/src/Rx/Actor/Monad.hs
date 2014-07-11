@@ -6,6 +6,7 @@ import qualified Control.Monad.State.Strict as State
 import Data.Typeable (Typeable)
 
 import Rx.Observable (onNext)
+import Rx.Actor.EventBus (toGenericEvent)
 
 import Rx.Actor.Types
 

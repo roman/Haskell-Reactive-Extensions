@@ -166,16 +166,6 @@ instance ToDisposable Supervisor where
 
 --------------------------------------------------------------------------------
 
-fromGenericEvent :: Typeable a => GenericEvent -> Maybe a
-fromGenericEvent (GenericEvent v) = cast v
-{-# INLINE fromGenericEvent #-}
-
-toGenericEvent :: Typeable a => a -> GenericEvent
-toGenericEvent = GenericEvent
-{-# INLINE toGenericEvent #-}
-
---------------------------------------------------------------------------------
-
 getActorKey :: GenericActorDef -> String
 getActorKey (GenericActorDef actorDef) =
   fromJust $ _actorChildKey actorDef
@@ -202,7 +192,3 @@ getRestartDelay = error "TODO"
 createActorQueue :: SpawnInfo -> IO (TChan GenericEvent)
 createActorQueue (NewActor {}) = newTChanIO
 createActorQueue spawn@(RestartActor {}) = return $ _spawnQueue spawn
-
-
-emitEvent :: (IObserver o, Typeable t) => o GenericEvent -> t -> IO ()
-emitEvent ob = onNext ob . toGenericEvent

@@ -22,6 +22,7 @@ library
   other-modules:
     Rx.Actor.Actor,
     Rx.Actor.ActorBuilder,
+    Rx.Actor.EventBus,
     Rx.Actor.Monad,
     Rx.Actor.Supervisor,
     Rx.Actor.Supervisor.SupervisorBuilder,

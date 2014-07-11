@@ -24,7 +24,8 @@ import Rx.Disposable (createDisposable)
 
 import Unsafe.Coerce (unsafeCoerce)
 
-import Rx.Actor.Util (logError, logError_, loopUntil_)
+import Rx.Actor.EventBus (fromGenericEvent)
+import Rx.Actor.Util (logError, logError_)
 import Rx.Actor.Types
 
 --------------------------------------------------------------------------------
