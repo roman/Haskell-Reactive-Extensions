@@ -7,7 +7,7 @@ module Rx.Actor
        , SupervisorBuilder, SupervisorStrategy(..), SupervisorDef, Supervisor
        -- ^ * Actor Builder API
        , defActor, actorKey, preStart, postStop, preRestart, postRestart
-       , onError, desc, receive, useBoundThread
+       , onError, desc, receive, useBoundThread, decorateEventBus
        -- ^ * Actor message handlers API
        , getState, setState, modifyState, getEventBus, emit
        -- ^ * SupervisorBuilder API
@@ -16,7 +16,7 @@ module Rx.Actor
        , startSupervisor, startSupervisorWithEventBus, stopSupervisor
        , emitEventToSupervisor, joinSupervisorThread
        -- ^ * EventBus API
-       , fromGenericEvent, toGenericEvent, emitEvent, typeOfEvent
+       , fromGenericEvent, toGenericEvent, emitEvent, typeOfEvent, filterEvent, mapEvent
        ) where
 
 import Control.Exception (ErrorCall(..), AssertionFailed, finally, fromException, assert)
