@@ -1,6 +1,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 module Rx.Observable
        ( Scheduler
+       , IObservable (..)
        , Observable (..)
        , IObserver (..)
        , ToObserver (..)
