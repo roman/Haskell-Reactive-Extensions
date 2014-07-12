@@ -5,6 +5,7 @@ module Rx.Observable
        , IObserver (..)
        , ToObserver (..)
        , ToAsyncObservable (..)
+       , ToSyncObservable (..)
        , Async
        , Sync
        , Disposable
@@ -12,12 +13,13 @@ module Rx.Observable
        , safeSubscribe
        , subscribeObserver
        , dispose
-       , module Observable
        , Observable.completeTimeout
-       , Observable.foldLeft
-       , Observable.timer
        , Observable.filter
+       , Observable.foldLeft
        , Observable.map
+       , Observable.timer
+       , Observable.scanLeft
+       , Observable.scanLeftWithItem
        ) where
 
 import Control.Applicative (Applicative (..))
@@ -28,6 +30,8 @@ import qualified Rx.Observable.Fold      as Observable
 import qualified Rx.Observable.Map       as Observable
 import qualified Rx.Observable.Merge     as Observable
 import qualified Rx.Observable.Replicate as Observable
+import qualified Rx.Observable.Scan      as Observable
+import qualified Rx.Observable.Take      as Observable
 import qualified Rx.Observable.Take      as Observable
 import qualified Rx.Observable.Timer     as Observable
 import qualified Rx.Observable.Timeout   as Observable
