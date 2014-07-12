@@ -18,6 +18,7 @@ import Control.Concurrent.STM (atomically, newTChanIO, readTChan, writeTChan)
 import Data.Maybe (fromMaybe, fromJust)
 import Data.Typeable (typeOf)
 
+import qualified Data.Set as Set
 import qualified Data.HashMap.Strict as HashMap
 
 import Tiempo.Concurrent (threadDelay)
@@ -32,7 +33,7 @@ import Rx.Disposable ( emptyDisposable
                      , toDisposable )
 import qualified Rx.Disposable as Disposable
 
-import Rx.Actor.EventBus (fromGenericEvent, typeOfEvent)
+import Rx.Actor.EventBus (fromGenericEvent, typeOfEvent, filterActorEvents)
 import Rx.Actor.Util (logError, logError_)
 import Rx.Actor.Types
 
@@ -68,6 +69,11 @@ _spawnActor (Supervisor {..}) spawn = do
         putMVar actorVar actor
         return actor
       where
+        actorHandlerTypes = Set.fromList . HashMap.keys $ _actorReceive actorDef
+        shouldHandleEvent gev = Set.member (show $ typeOfEvent gev) actorHandlerTypes
+        sendToActor gev =
+          when (shouldHandleEvent gev) $ atomically (writeTChan actorEvQueue gev)
+
         initActor actorVar subDisposable = do
           actor <- takeMVar actorVar
           disposable <-

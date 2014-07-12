@@ -1,8 +1,10 @@
 module Rx.Actor.EventBus where
 
 import Data.Typeable (Typeable, TypeRep, cast, typeOf)
-import Rx.Observable (IObserver, IObservable, Observable, onNext)
+import qualified Data.HashMap.Strict as HashMap
+import qualified Data.Set as Set
 
+import Rx.Observable (IObserver, IObservable, Observable, onNext)
 import qualified Rx.Observable as Observable
 
 import Rx.Actor.Types
@@ -48,3 +50,12 @@ filterEvent fn = Observable.filter castEvent
       case fromGenericEvent gev of
         Just ev -> fn ev
         Nothing -> True
+
+-- filterActorEvents :: (IObservable observable)
+--                   => ActorDef st
+--                   -> observable s GenericEvent
+--                   -> Observable s GenericEvent
+-- filterActorEvents actorDef = Observable.filter doesActorHandlesEvent
+--   where
+--     actorHandlerTypes = Set.fromList . HashMap.keys $ _actorReceive actorDef
+--     doesActorHandlesEvent gev = Set.member (show $ typeOfEvent gev) actorHandlerTypes
