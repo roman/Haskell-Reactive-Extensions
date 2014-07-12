@@ -27,6 +27,7 @@ data ActorBuilderF st x
       => OnErrorI (e -> st -> IO RestartDirective)  x
   | HandlerDescI String x
   | SetForkerI (IO () -> IO ThreadId) x
+  | AppendEventBusDecoratorI EventBusDecorator x
   | forall t . Typeable t => HandlerI (t -> ActorM st ()) x
 
 instance Functor (ActorBuilderF st) where
@@ -38,6 +39,8 @@ instance Functor (ActorBuilderF st) where
   fmap f (PostRestartI action x) = PostRestartI action (f x)
   fmap f (OnErrorI action x) = OnErrorI action (f x)
   fmap f (SetForkerI forker x) = SetForkerI forker (f x)
+  fmap f (AppendEventBusDecoratorI decorator x) =
+    AppendEventBusDecoratorI decorator (f x)
   fmap f (HandlerDescI str x) = HandlerDescI str (f x)
   fmap f (HandlerI action x) = HandlerI action (f x)
 
@@ -110,6 +113,9 @@ useBoundThread True  = liftF $ SetForkerI forkOS ()
 desc :: String -> ActorBuilder st ()
 desc str = liftF $ HandlerDescI str ()
 
+decorateEventBus :: EventBusDecorator -> ActorBuilder st ()
+decorateEventBus decorator = liftF $ AppendEventBusDecoratorI decorator ()
+
 receive :: Typeable t => (t -> ActorM st ()) -> ActorBuilder st ()
 receive handler = liftF $ HandlerI handler ()
 
@@ -132,6 +138,7 @@ defActor build = eval emptyActorDef build
         , _actorReceive = HashMap.empty
         , _actorRestartAttempt = 0
         , _actorDelayAfterStart = seconds 0
+        , _actorEventBusDecorator = id
         }
     eval actorDef (Pure _) = actorDef
 
@@ -155,6 +162,10 @@ defActor build = eval emptyActorDef build
 
     eval actorDef (Free (SetForkerI forker next)) =
       eval (actorDef { _actorForker = forker }) next
+
+    eval actorDef (Free (AppendEventBusDecoratorI decorator next)) =
+      let currentDecorator = _actorEventBusDecorator actorDef
+      in eval (actorDef { _actorEventBusDecorator = decorator . currentDecorator }) next
 
     eval actorDef (Free (OnErrorI onError next)) =
       eval (addErrorHandler actorDef (ErrorHandler onError)) next

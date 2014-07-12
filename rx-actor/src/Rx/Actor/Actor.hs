@@ -8,7 +8,7 @@ import Control.Monad (void, when)
 import Control.Monad.Trans (liftIO)
 import Control.Monad.State.Strict (execStateT)
 
-import Control.Exception (SomeException(..), fromException, try)
+import Control.Exception (SomeException(..), fromException, try, throwIO)
 import Control.Concurrent (forkIO, killThread, myThreadId, yield)
 import Control.Concurrent.MVar (newEmptyMVar, takeMVar, putMVar)
 import Control.Concurrent.STM (atomically, newTChanIO, readTChan, writeTChan)
@@ -24,7 +24,13 @@ import Rx.Disposable (createDisposable)
 
 import Unsafe.Coerce (unsafeCoerce)
 
-import Rx.Actor.EventBus (fromGenericEvent)
+import Rx.Observable (toSyncObservable, safeSubscribe, scanLeftWithItem)
+import Rx.Disposable ( emptyDisposable
+                     , newCompositeDisposable, newSingleAssignmentDisposable
+                     , toDisposable )
+import qualified Rx.Disposable as Disposable
+
+import Rx.Actor.EventBus (fromGenericEvent, typeOfEvent)
 import Rx.Actor.Util (logError, logError_)
 import Rx.Actor.Types
 
@@ -36,64 +42,94 @@ _spawnActor (Supervisor {..}) spawn = do
     main (_spawnActorDef spawn) actorEvQueue
   where
     main gActorDef@(GenericActorDef actorDef) actorEvQueue = do
+        actorDisposable <- newCompositeDisposable
+        subDisposable <- newSingleAssignmentDisposable
+
         actorVar <- newEmptyMVar
-        actorTid <- _actorForker actorDef $ initActor actorVar
-        actorDisposable <- createDisposable $ do
+        actorTid <- _actorForker actorDef $ initActor actorVar subDisposable
+
+        threadDisposable <- createDisposable $ do
           logMsg $ "Disposable called"
           killThread actorTid
 
+        Disposable.append threadDisposable actorDisposable
+        Disposable.append subDisposable actorDisposable
+
         let actor = Actor {
-            _sendToActor          = atomically . writeTChan actorEvQueue
-          , _actorQueue           = actorEvQueue
-          , _actorCleanup         = actorDisposable
-          , _actorDef             = gActorDef
-          , _actorEventBus        = _supervisorEventBus
+            _sendToActor            = atomically . writeTChan actorEvQueue
+          , _actorQueue             = actorEvQueue
+          , _actorCleanup           = toDisposable $ actorDisposable
+          , _actorDef               = gActorDef
+          , _actorEventBus          = _supervisorEventBus
           }
+
         putMVar actorVar actor
         return actor
-
       where
-        initActor actorVar = do
+        actorObservable actor st =
+          scanLeftWithItem (actorLoop actor) st $
+          _actorEventBusDecorator actorDef $
+          toSyncObservable actorEvQueue
+
+        initActor actorVar subDisposable = do
           actor <- takeMVar actorVar
-          case spawn of
-            (RestartActor _ st' err gev _ delay) -> do
-              threadDelay delay
-              restartActor actor (unsafeCoerce st') err gev
-            (NewActor {}) -> newActor actor
+          disposable <-
+            case spawn of
+              (RestartActor _ st' err gev _ delay) -> do
+                threadDelay delay
+                restartActor actor (unsafeCoerce st') err gev
+              (NewActor {}) -> newActor actor
+
+          Disposable.set disposable subDisposable
 
 
         newActor actor = do
           result <- _actorPreStart actorDef
           threadDelay $ _actorDelayAfterStart actorDef
           case result of
-            InitFailure err ->
+            InitFailure err -> do
               _sendToSupervisor
                 $ ActorFailedOnInitialize {
                   _supEvTerminatedError = err
                 , _supEvTerminatedActor = actor
                 }
-            InitOk st -> actorLoop actor st
+              emptyDisposable
+            InitOk st ->
+              safeSubscribe (actorObservable actor st)
+                            (const $ return ()) -- log events here
+                            (const $ return ())
+                            (return ())
+
 
         restartActor actor oldSt err gev = do
           result <- logError $ _actorPostRestart actorDef oldSt err gev
           case result of
-            Nothing -> actorLoop actor oldSt
-            Just (InitOk newSt) -> actorLoop actor newSt
-            Just (InitFailure initErr) ->
+            Nothing ->
+              -- TODO: Do a warning with the error
+              safeSubscribe (actorObservable actor oldSt)
+                            (const $ return ()) -- log events here
+                            (const $ return ()) -- log events on error
+                            (return ())
+            Just (InitOk newSt) ->
+              safeSubscribe (actorObservable actor newSt)
+                            (const $ return ()) -- log events here
+                            (const $ return ()) -- log events on error
+                            (return ())
+
+            Just (InitFailure initErr) -> do
               _sendToSupervisor
                 $ ActorFailedOnInitialize {
                   _supEvTerminatedError = initErr
                 , _supEvTerminatedActor = actor
                 }
+              emptyDisposable
 
-        actorLoop actor st = do
-          gev@(GenericEvent ev) <- atomically $ readTChan actorEvQueue
-
+        actorLoop actor st gev = do
           let handlers = _actorReceive actorDef
-              evType = show $ typeOf ev
+              evType = show $ typeOfEvent gev
 
           case HashMap.lookup evType handlers of
-            Nothing -> actorLoop actor st
+            Nothing -> return st
             Just (EventHandler _ handler) -> do
               logMsg $ "[type: " ++ evType ++ "] Handling event"
               result <- try $ execStateT (fromActorM . handler
@@ -101,7 +137,7 @@ _spawnActor (Supervisor {..}) spawn = do
                                          (st, _supervisorEventBus)
               case result of
                 Left err  -> handleActorError actor err st gev
-                Right (st', _) -> yield >> actorLoop actor st'
+                Right (st', _) -> return st'
 
         handleActorError actor err@(SomeException innerErr) st gev = do
           putStrLn $ "Received error on " ++ getActorKey gActorDef ++ ": " ++ show err
@@ -109,16 +145,17 @@ _spawnActor (Supervisor {..}) spawn = do
               restartDirectives = _actorRestartDirective actorDef
           case HashMap.lookup errType restartDirectives of
             Nothing ->
-              sendErrorToSupervisor Raise actor err st gev
+              sendErrorToSupervisor Restart actor err st gev
             Just (ErrorHandler errHandler) -> do
               restartDirective <- errHandler (fromJust $ fromException err) st
               case restartDirective of
                 Stop -> do
                   logMsg $ "[error: " ++ show err ++ "] Stop actor"
                   _actorPostStop actorDef
+                  throwIO err
                 Resume -> do
                   logMsg $ "[error: " ++ show err ++ "] Resume actor"
-                  actorLoop actor st
+                  return st
                 _ -> do
                   logMsg $ "[error: " ++ show err ++ "] Send message to supervisor actor"
                   sendErrorToSupervisor restartDirective actor err st gev
@@ -136,6 +173,7 @@ _spawnActor (Supervisor {..}) spawn = do
                   , _supEvTerminatedActor = actor
                   , _supEvTerminatedDirective = restartDirective
                   }
+          throwIO err
 
         logMsg msg = do
           let sep = case msg of

@@ -23,7 +23,7 @@ import Tiempo (TimeInterval)
 import Rx.Disposable ( Disposable, IDisposable, ToDisposable
                      , dispose )
 import Rx.Subject (Subject)
-import Rx.Observable (IObserver(..))
+import Rx.Observable (IObserver(..), Observable, Sync)
 
 import qualified Rx.Disposable as Disposable
 
@@ -38,6 +38,8 @@ newtype ActorM st a
 type ActorKeyVal = String
 type ActorKey = Maybe ActorKeyVal
 type EventBus = Subject GenericEvent
+type EventBusObservable = Observable Sync GenericEvent
+type EventBusDecorator = EventBusObservable -> EventBusObservable
 type AttemptCount = Int
 
 data InitResult st
@@ -64,16 +66,18 @@ data ErrorHandler st
 
 data ActorDef st
   = ActorDef {
-    _actorChildKey         :: !ActorKey
-  , _actorForker           :: !(IO () -> IO ThreadId)
-  , _actorPreStart         :: IO (InitResult st)
-  , _actorPostStop         :: !(IO ())
-  , _actorPreRestart       :: !(st -> SomeException -> GenericEvent -> IO ())
-  , _actorPostRestart      :: !(st -> SomeException -> GenericEvent -> IO (InitResult st))
-  , _actorRestartDirective :: !(HashMap String (ErrorHandler st))
-  , _actorDelayAfterStart  :: !TimeInterval
-  , _actorReceive          :: !(HashMap String (EventHandler st))
-  , _actorRestartAttempt   :: !Int
+    _actorChildKey          :: !ActorKey
+  , _actorForker            :: !(IO () -> IO ThreadId)
+  , _actorPreStart          :: IO (InitResult st)
+  , _actorPostStop          :: !(IO ())
+  , _actorPreRestart        :: !(st -> SomeException -> GenericEvent -> IO ())
+  , _actorPostRestart
+      :: !(st -> SomeException -> GenericEvent -> IO (InitResult st))
+  , _actorRestartDirective  :: !(HashMap String (ErrorHandler st))
+  , _actorDelayAfterStart   :: !TimeInterval
+  , _actorReceive           :: !(HashMap String (EventHandler st))
+  , _actorRestartAttempt    :: !Int
+  , _actorEventBusDecorator :: !(EventBusDecorator)
   }
   deriving (Typeable)
 
@@ -81,11 +85,11 @@ data GenericActorDef = forall st . GenericActorDef (ActorDef st)
 
 data Actor
   = Actor {
-    _sendToActor          :: !(GenericEvent -> IO ())
-  , _actorQueue           :: !(TChan GenericEvent)
-  , _actorCleanup         :: !Disposable
-  , _actorDef             :: !GenericActorDef
-  , _actorEventBus        :: !EventBus
+    _sendToActor           :: !(GenericEvent -> IO ())
+  , _actorQueue            :: !(TChan GenericEvent)
+  , _actorCleanup          :: !Disposable
+  , _actorDef              :: !GenericActorDef
+  , _actorEventBus         :: !EventBus
   }
   deriving (Typeable)
 
