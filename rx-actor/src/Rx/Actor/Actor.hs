@@ -71,6 +71,16 @@ _spawnActor (Supervisor {..}) spawn = do
           _actorEventBusDecorator actorDef $
           toSyncObservable actorEvQueue
 
+        handleActorObservableError err =
+          case fromException err of
+            Just supEv -> _sendToSupervisor supEv
+            Nothing ->
+              case fromException err of
+                Just (StopActorLoop _) -> return ()
+                Nothing ->
+                  error "FATAL: Arrived to unhandled error on actorLoop"
+
+
         initActor actorVar subDisposable = do
           actor <- takeMVar actorVar
           disposable <-
@@ -82,47 +92,30 @@ _spawnActor (Supervisor {..}) spawn = do
 
           Disposable.set disposable subDisposable
 
-
         newActor actor = do
           result <- _actorPreStart actorDef
           threadDelay $ _actorDelayAfterStart actorDef
           case result of
             InitFailure err -> do
-              _sendToSupervisor
-                $ ActorFailedOnInitialize {
-                  _supEvTerminatedError = err
-                , _supEvTerminatedActor = actor
-                }
+              sendActorInitErrorToSupervisor actor err
               emptyDisposable
-            InitOk st ->
-              safeSubscribe (actorObservable actor st)
-                            (const $ return ()) -- log events here
-                            (const $ return ())
-                            (return ())
-
+            InitOk st -> startActorLoop actor st
 
         restartActor actor oldSt err gev = do
           result <- logError $ _actorPostRestart actorDef oldSt err gev
           case result of
-            Nothing ->
-              -- TODO: Do a warning with the error
-              safeSubscribe (actorObservable actor oldSt)
-                            (const $ return ()) -- log events here
-                            (const $ return ()) -- log events on error
-                            (return ())
-            Just (InitOk newSt) ->
-              safeSubscribe (actorObservable actor newSt)
-                            (const $ return ()) -- log events here
-                            (const $ return ()) -- log events on error
-                            (return ())
-
+            -- TODO: Do a warning with the error
+            Nothing -> startActorLoop actor oldSt
+            Just (InitOk newSt) -> startActorLoop actor newSt
             Just (InitFailure initErr) -> do
-              _sendToSupervisor
-                $ ActorFailedOnInitialize {
-                  _supEvTerminatedError = initErr
-                , _supEvTerminatedActor = actor
-                }
+              sendActorInitErrorToSupervisor actor initErr
               emptyDisposable
+
+        startActorLoop actor st =
+          safeSubscribe (actorObservable actor st)
+                        (const $ return ()) -- log events here
+                        handleActorObservableError
+                        (return ())
 
         actorLoop actor st gev = do
           let handlers = _actorReceive actorDef
@@ -136,44 +129,52 @@ _spawnActor (Supervisor {..}) spawn = do
                                            $ fromJust $ fromGenericEvent gev)
                                          (st, _supervisorEventBus)
               case result of
-                Left err  -> handleActorError actor err st gev
+                Left err  -> handleActorLoopError actor err st gev
                 Right (st', _) -> return st'
 
-        handleActorError actor err@(SomeException innerErr) st gev = do
+        handleActorLoopError actor err@(SomeException innerErr) st gev = do
           putStrLn $ "Received error on " ++ getActorKey gActorDef ++ ": " ++ show err
           let errType = show $ typeOf innerErr
               restartDirectives = _actorRestartDirective actorDef
           case HashMap.lookup errType restartDirectives of
             Nothing ->
-              sendErrorToSupervisor Restart actor err st gev
+              sendActorLoopErrorToSupervisor Restart actor err st gev
             Just (ErrorHandler errHandler) -> do
               restartDirective <- errHandler (fromJust $ fromException err) st
               case restartDirective of
-                Stop -> do
-                  logMsg $ "[error: " ++ show err ++ "] Stop actor"
-                  _actorPostStop actorDef
-                  throwIO err
                 Resume -> do
                   logMsg $ "[error: " ++ show err ++ "] Resume actor"
                   return st
+                Stop -> do
+                  logMsg $ "[error: " ++ show err ++ "] Stop actor"
+                  _actorPostStop actorDef
+                  stopActorLoop err
                 _ -> do
                   logMsg $ "[error: " ++ show err ++ "] Send message to supervisor actor"
-                  sendErrorToSupervisor restartDirective actor err st gev
+                  sendActorLoopErrorToSupervisor restartDirective actor err st gev
 
+        stopActorLoop = throwIO . StopActorLoop
 
-        sendErrorToSupervisor restartDirective actor err st gev = do
+        sendActorLoopErrorToSupervisor restartDirective actor err st gev = do
           when (restartDirective == Restart)
             $ logError_ $ _actorPreRestart actorDef st err gev
           logMsg "Notify supervisor to restart actor"
-          _sendToSupervisor
-                  $ ActorFailedWithError {
+          throwIO
+            $ ActorFailedWithError {
                     _supEvTerminatedState = st
                   , _supEvTerminatedFailedEvent = gev
                   , _supEvTerminatedError = err
                   , _supEvTerminatedActor = actor
                   , _supEvTerminatedDirective = restartDirective
                   }
-          throwIO err
+
+        sendActorInitErrorToSupervisor actor err =
+          throwIO
+            $ ActorFailedOnInitialize {
+              _supEvTerminatedError = err
+            , _supEvTerminatedActor = actor
+            }
+
 
         logMsg msg = do
           let sep = case msg of

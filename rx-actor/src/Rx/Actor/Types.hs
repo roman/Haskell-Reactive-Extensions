@@ -130,10 +130,29 @@ data SupervisionEvent
       _supEvTerminatedError :: !SomeException
     , _supEvTerminatedActor :: !Actor
     }
-  | ActorTerminatedByKill {
-      _supEvTerminatedActorDef :: !GenericActorDef
-    }
   deriving (Typeable)
+
+instance Show SupervisionEvent where
+  show (ActorSpawned gActorDef) =
+    "ActorSpawned " ++ getActorKey gActorDef
+  show (ActorTerminated gActorDef) =
+    "ActorTerminated " ++ getActorKey gActorDef
+  show supEv@(ActorFailedWithError {}) =
+    let actorKey = getActorKey . _actorDef $ _supEvTerminatedActor supEv
+        actorErr = _supEvTerminatedError supEv
+    in "ActorFailedWithError " ++ actorKey ++ " " ++ show actorErr
+  show supEv@(ActorFailedOnInitialize {}) =
+    let actorKey = getActorKey . _actorDef $ _supEvTerminatedActor supEv
+        actorErr = _supEvTerminatedError supEv
+    in "ActorFailedOnInitialize " ++ actorKey ++ " " ++ show actorErr
+
+instance Exception SupervisionEvent
+
+data StopActorLoop
+  = StopActorLoop SomeException
+  deriving (Show, Typeable)
+
+instance Exception StopActorLoop
 
 data SupervisorStrategy
   = OneForOne

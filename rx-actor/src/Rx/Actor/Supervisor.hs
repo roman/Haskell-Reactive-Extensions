@@ -91,7 +91,6 @@ _createSupervisor evBus supDef@(SupervisorDef {..}) = do
           case ev of
             (ActorSpawned gActorDef) -> supAddActor sup gActorDef
             (ActorTerminated gActorDef) -> supRemoveActor gActorDef
-            (ActorTerminatedByKill gActorDef) -> supRemoveActor gActorDef
             (ActorFailedOnInitialize err actor) -> supFail err $ Just actor
             (ActorFailedWithError prevSt failedEv err actor directive) ->
               supRestartActor sup prevSt failedEv err actor directive
