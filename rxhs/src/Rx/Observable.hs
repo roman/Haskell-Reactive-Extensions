@@ -18,6 +18,7 @@ module Rx.Observable
        , Observable.filter
        , Observable.foldLeft
        , Observable.map
+       , Observable.mapM
        , Observable.timer
        , Observable.scanLeft
        , Observable.scanLeftWithItem

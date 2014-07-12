@@ -6,7 +6,7 @@ module Rx.Actor
        , ActorBuilder, ActorM, ActorDef, Actor, RestartDirective(..), InitResult(..)
        , SupervisorBuilder, SupervisorStrategy(..), SupervisorDef, Supervisor
        -- ^ * Actor Builder API
-       , defActor, actorKey, preStart, postStop, preRestart, postRestart
+       , defActor, actorKey, preStart, preStart1, postStop, preRestart, postRestart
        , onError, desc, receive, useBoundThread, decorateEventBus
        -- ^ * Actor message handlers API
        , getState, setState, modifyState, getEventBus, emit
@@ -58,7 +58,7 @@ numberPrinter = defActor $ do
       putStrLn "preStart printer"
       return $ InitOk ()
 
-    postStop $ do
+    postStop $ \_ -> do
       putStrLn "postStop printer"
 
     preRestart $ \() err _ev -> do
@@ -100,7 +100,7 @@ numberAccumulator = defActor $ do
 
     -- This function is the "finalizer" of the actor
     -- here you should do cleanup of external resources
-    postStop $ do
+    postStop $ \_ -> do
       putStrLn "postStop accum"
 
     -- This gets executed before a restart is about to happen

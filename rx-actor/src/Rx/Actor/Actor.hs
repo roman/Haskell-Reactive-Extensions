@@ -86,7 +86,7 @@ _spawnActor (Supervisor {..}) spawn = do
           Disposable.set disposable subDisposable
 
         newActor actor = do
-          result <- _actorPreStart actorDef
+          result <- _actorPreStart actorDef _supervisorEventBus
           threadDelay $ _actorDelayAfterStart actorDef
           case result of
             InitFailure err -> do
@@ -154,7 +154,7 @@ _spawnActor (Supervisor {..}) spawn = do
                   return st
                 Stop -> do
                   logMsg $ "[error: " ++ show err ++ "] Stop actor"
-                  _actorPostStop actorDef
+                  _actorPostStop actorDef st
                   stopActorLoop err
                 _ -> do
                   logMsg $ "[error: " ++ show err ++ "] Send message to supervisor actor"
@@ -163,8 +163,11 @@ _spawnActor (Supervisor {..}) spawn = do
         stopActorLoop = throwIO . StopActorLoop
 
         sendActorLoopErrorToSupervisor restartDirective actor err st gev = do
-          when (restartDirective == Restart)
-            $ logError_ $ _actorPreRestart actorDef st err gev
+          logError_ $
+            if restartDirective == Restart
+              then _actorPreRestart actorDef st err gev
+              else _actorPostStop actorDef st
+
           logMsg "Notify supervisor to restart actor"
           throwIO
             $ ActorFailedWithError {

@@ -19,8 +19,8 @@ import Rx.Actor.Types
 data ActorBuilderF st x
   = SetActorKeyI String x
   | SetStartDelayI TimeInterval x
-  | PreStartI (IO (InitResult st)) x
-  | PostStopI (IO ()) x
+  | PreStartI (EventBus -> IO (InitResult st)) x
+  | PostStopI (st -> IO ()) x
   | PreRestartI  (st -> SomeException -> GenericEvent -> IO ()) x
   | PostRestartI (st -> SomeException -> GenericEvent -> IO (InitResult st)) x
   | forall e. (Typeable e, Exception e)
@@ -66,7 +66,10 @@ startDelay delay = liftF $ SetStartDelayI delay ()
 -- >>> _actorPreStart actorDef
 -- InitOk 0
 preStart :: IO (InitResult st) -> ActorBuilder st ()
-preStart action = liftF $ PreStartI action ()
+preStart action = liftF $ PreStartI (const action) ()
+
+preStart1 :: (EventBus -> IO (InitResult st)) -> ActorBuilder st ()
+preStart1 action = liftF $ PreStartI action ()
 
 -- |
 -- Example:
@@ -76,7 +79,7 @@ preStart action = liftF $ PreStartI action ()
 -- >>> _actorPostStop actorDef
 -- >>> takeMVar result
 -- "STOPPED"
-postStop :: IO () -> ActorBuilder st ()
+postStop :: (st -> IO ()) -> ActorBuilder st ()
 postStop action = liftF $ PostStopI action ()
 
 -- |
@@ -129,7 +132,7 @@ defActor build = eval emptyActorDef build
           _actorChildKey = Nothing
         , _actorForker = forkIO
         , _actorPreStart = error "preStart needs to be defined"
-        , _actorPostStop = return ()
+        , _actorPostStop = const $ return ()
         , _actorPreRestart = \_ _ _ -> return ()
         , _actorPostRestart = \st _ _ -> return $ InitOk st
         , _actorRestartDirective =
