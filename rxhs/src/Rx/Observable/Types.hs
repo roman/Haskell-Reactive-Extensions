@@ -10,7 +10,8 @@ import Control.Exception   (AsyncException (ThreadKilled), Handler (..),
 
 import Control.Concurrent.STM (TChan, atomically, readTChan)
 
-import           Rx.Disposable ( Disposable, newCompositeDisposable
+import           Rx.Disposable ( Disposable, emptyDisposable
+                               , newCompositeDisposable
                                , newSingleAssignmentDisposable )
 import qualified Rx.Disposable as Disposable
 
@@ -39,6 +40,9 @@ class IObservable observable where
 
 class ToAsyncObservable observable where
   toAsyncObservable :: observable a -> Observable Async a
+
+class ToSyncObservable observable where
+  toSyncObservable :: observable a -> Observable Sync a
 
 --------------------------------------------------------------------------------
 
@@ -93,6 +97,13 @@ instance ToAsyncObservable TChan where
     schedule newThread $ forever $ do
       ev <- atomically $ readTChan chan
       onNext observer ev
+
+instance ToSyncObservable TChan where
+  toSyncObservable chan = Observable $ \observer -> do
+    forever $ do
+      ev <- atomically $ readTChan chan
+      onNext observer ev
+    emptyDisposable
 
 --------------------------------------------------------------------------------
 
