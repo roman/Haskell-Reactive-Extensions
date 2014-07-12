@@ -68,7 +68,7 @@ data ActorDef st
   = ActorDef {
     _actorChildKey          :: !ActorKey
   , _actorForker            :: !(IO () -> IO ThreadId)
-  , _actorPreStart          :: !(EventBus -> IO (InitResult st))
+  , _actorPreStart          :: EventBus -> IO (InitResult st)
   , _actorPostStop          :: !(st -> IO ())
   , _actorPreRestart        :: !(st -> SomeException -> GenericEvent -> IO ())
   , _actorPostRestart
