@@ -4,6 +4,8 @@
 {-# LANGUAGE ExistentialQuantification #-}
 module Rx.Actor.Actor where
 
+import Control.Applicative ((<$>), (<|>))
+
 import Control.Monad (void, when)
 import Control.Monad.Trans (liftIO)
 import Control.Monad.State.Strict (execStateT)
@@ -66,21 +68,6 @@ _spawnActor (Supervisor {..}) spawn = do
         putMVar actorVar actor
         return actor
       where
-        actorObservable actor st =
-          scanLeftWithItem (actorLoop actor) st $
-          _actorEventBusDecorator actorDef $
-          toSyncObservable actorEvQueue
-
-        handleActorObservableError err =
-          case fromException err of
-            Just supEv -> _sendToSupervisor supEv
-            Nothing ->
-              case fromException err of
-                Just (StopActorLoop _) -> return ()
-                Nothing ->
-                  error "FATAL: Arrived to unhandled error on actorLoop"
-
-
         initActor actorVar subDisposable = do
           actor <- takeMVar actorVar
           disposable <-
@@ -113,9 +100,23 @@ _spawnActor (Supervisor {..}) spawn = do
 
         startActorLoop actor st =
           safeSubscribe (actorObservable actor st)
-                        (const $ return ()) -- log events here
+                        -- TODO: Receive a function that understands
+                        -- the state and can provide meaningful
+                        -- state <=> ev info
+                        (const $ return ())
                         handleActorObservableError
                         (return ())
+
+        actorObservable actor st =
+          scanLeftWithItem (actorLoop actor) st $
+          _actorEventBusDecorator actorDef $
+          toSyncObservable actorEvQueue
+
+        handleActorObservableError err =
+          maybe (error "FATAL: Arrived to unhandled error on actorLoop") id $
+                ((\(StopActorLoop _) -> return ()) <$> fromException err) <|>
+                (_sendToSupervisor <$> fromException err)
+
 
         actorLoop actor st gev = do
           let handlers = _actorReceive actorDef
