@@ -33,7 +33,7 @@ import Rx.Disposable ( emptyDisposable
                      , toDisposable )
 import qualified Rx.Disposable as Disposable
 
-import Rx.Actor.EventBus (fromGenericEvent, typeOfEvent, filterActorEvents)
+import Rx.Actor.EventBus (fromGenericEvent, typeOfEvent)
 import Rx.Actor.Util (logError, logError_)
 import Rx.Actor.Types
 
