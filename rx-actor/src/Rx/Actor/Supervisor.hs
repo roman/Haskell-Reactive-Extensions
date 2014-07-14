@@ -82,7 +82,7 @@ _createSupervisor evBus supDef@(SupervisorDef {..}) = do
               , _sendToSupervisor = supSend
               }
 
-        innerDisposable <- createDisposable $ stopSupervisor sup
+        innerDisposable <- createDisposable $ killSupervisor sup
         Disposable.set innerDisposable supDisposable
 
         subAsync <- async $ initSub sup
