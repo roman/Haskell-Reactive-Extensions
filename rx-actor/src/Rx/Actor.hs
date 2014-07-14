@@ -5,6 +5,7 @@ module Rx.Actor
        ( GenericEvent, EventBus
        , ActorBuilder, ActorM, ActorDef, Actor, RestartDirective(..), InitResult(..)
        , SupervisorBuilder, SupervisorStrategy(..), SupervisorDef, Supervisor
+       , ActorEvent(..)
        -- ^ * Actor Builder API
        , defActor, actorKey, preStart, preStart1, postStop, preRestart, postRestart
        , onError, desc, receive, useBoundThread, decorateEventBus
@@ -62,10 +63,10 @@ numberPrinter = defActor $ do
       putStrLn "postStop printer"
 
     preRestart $ \() err _ev -> do
-      putStrLn $ "preRestart => " ++ show err
+      putStrLn $ "preRestart printer => " ++ show err
 
     postRestart $ \() err _ev -> do
-      putStrLn $ "postRestart: recovering from failure"
+      putStrLn $ "postRestart printer : recovering from failure"
       return $ InitOk ()
 
     desc "Print integers on terminal"
@@ -163,7 +164,7 @@ mySystem :: SupervisorDef
 mySystem = defSupervisor $ do
   -- Should I restart only the child that failed or
   -- all of them
-  strategy OneForOne
+  strategy AllForOne
   -- If I restart a child, how much time should I await for each attempt?
   backoff $ \attempt -> seconds $ 2 ^ attempt
 

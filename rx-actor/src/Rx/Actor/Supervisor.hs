@@ -10,7 +10,7 @@ import Control.Concurrent.Async (Async, async, cancel, link2, wait)
 
 import Control.Exception (throwIO)
 
-import Control.Monad (void, forever)
+import Control.Monad (void, when, forever, forM_)
 import Control.Monad.Free
 
 import Data.Typeable (Typeable)
@@ -39,10 +39,28 @@ startSupervisor supDef = do
   startSupervisorWithEventBus evBus supDef
 
 stopSupervisor :: Supervisor -> IO ()
-stopSupervisor = dispose
+stopSupervisor sup@(Supervisor {..}) = do
+  stopChildren sup
+  cancel _supervisorAsync
+
+killSupervisor :: Supervisor -> IO ()
+killSupervisor sup@(Supervisor {..}) = do
+  disposeChildren sup
+  cancel _supervisorAsync
+
+onChildren :: (Actor -> IO b) -> Supervisor -> IO ()
+onChildren onChildFn (Supervisor {..}) = do
+  actorMap <- atomically $ readTVar _supervisorChildren
+  mapM_ onChildFn (HashMap.elems actorMap)
+
+stopChildren :: Supervisor -> IO ()
+stopChildren    = onChildren (`_sendCtrlToActor` StopActorEvent)
+
+disposeChildren :: Supervisor -> IO ()
+disposeChildren = onChildren dispose
 
 joinSupervisorThread :: Supervisor -> IO ()
-joinSupervisorThread = _supervisorJoin
+joinSupervisorThread = wait . _supervisorAsync
 
 _createSupervisor :: EventBus -> SupervisorDef -> IO Supervisor
 _createSupervisor evBus supDef@(SupervisorDef {..}) = do
@@ -53,17 +71,21 @@ _createSupervisor evBus supDef@(SupervisorDef {..}) = do
     main ctrlQueue actorMapVar = do
         supVar <- newEmptyMVar
         supAsync <- async $ initSup supVar
-        subAsync <- async initSub
-        supDisposable <- mkSupDisposable supAsync
+        supDisposable <- newSingleAssignmentDisposable
         let sup =
               Supervisor {
                 _supervisorDef = supDef
+              , _supervisorAsync = supAsync
               , _supervisorEventBus = evBus
               , _supervisorDisposable = toDisposable $ supDisposable
               , _supervisorChildren = actorMapVar
               , _sendToSupervisor = supSend
-              , _supervisorJoin = wait supAsync
               }
+
+        innerDisposable <- createDisposable $ stopSupervisor sup
+        Disposable.set innerDisposable supDisposable
+
+        subAsync <- async $ initSub sup
         link2 supAsync subAsync
         putMVar supVar sup
         return sup
@@ -73,10 +95,10 @@ _createSupervisor evBus supDef@(SupervisorDef {..}) = do
           initChildrenThreads sup
           supLoop sup
 
-        initSub =
+        initSub sup =
           safeSubscribe (toAsyncObservable evBus)
                         emitEventToChildren
-                        (\err -> supFail err Nothing)
+                        (\err -> supFail sup err Nothing)
                         (return ())
 
         initChildrenThreads sup =
@@ -90,8 +112,8 @@ _createSupervisor evBus supDef@(SupervisorDef {..}) = do
           ev <- atomically $ readTChan ctrlQueue
           case ev of
             (ActorSpawned gActorDef) -> supAddActor sup gActorDef
-            (ActorTerminated gActorDef) -> supRemoveActor gActorDef
-            (ActorFailedOnInitialize err actor) -> supFail err $ Just actor
+            (ActorTerminated actor) -> supRemoveActor actor
+            (ActorFailedOnInitialize err actor) -> supFail sup err $ Just actor
             (ActorFailedWithError prevSt failedEv err actor directive) ->
               supRestartActor sup prevSt failedEv err actor directive
           yield
@@ -107,18 +129,18 @@ _createSupervisor evBus supDef@(SupervisorDef {..}) = do
 
         supRemoveActor gActorDef = do
           let actorKey = getActorKey gActorDef
-          actorMap <- atomically $ readTVar actorMapVar
-          case HashMap.lookup actorKey actorMap of
-            Nothing -> return ()
-            Just actor -> do
-              logMsg $ "Supervisor: Removing actor " ++ actorKey
-              dispose actor
-              atomically $ modifyTVar actorMapVar
-                         $ HashMap.delete actorKey
+          wasRemoved <- atomically $ do
+            actorMap <- readTVar actorMapVar
+            case HashMap.lookup actorKey actorMap of
+              Nothing -> return False
+              Just actor -> do
+                modifyTVar actorMapVar $ HashMap.delete actorKey
+                return True
+          when wasRemoved (logMsg $ "Supervisor: Removing actor " ++ actorKey)
 
-        supFail err _ = do
+        supFail sup err _ = do
           logMsg $ "Supervisor: Failing with error '" ++ show err ++ "'"
-          disposeChildren
+          disposeChildren sup
           throwIO err
 
         supStartActor sup gActorDef spawnInfo = do
@@ -129,37 +151,50 @@ _createSupervisor evBus supDef@(SupervisorDef {..}) = do
             $ HashMap.insertWith (\_ _ -> actor) actorKey actor
 
         supRestartActor sup prevSt failedEv err actor directive =
-          let gActorDef = _actorDef actor
-          in case directive of
-            Raise   -> do
+          case directive of
+            Raise -> do
               logMsg $ "Supervisor: raise error from actor"
-              supFail err actor
-            Restart -> do
-              let restartAttempt = getRestartAttempts gActorDef
-                  restartDelay = _supervisorBackoffDelayFn restartAttempt
+              supFail sup err actor
+            RestartOne ->
+              supRestartSingleActor actor sup prevSt failedEv err
+            Restart ->
+              let restarter =
+                    case _supervisorStrategy of
+                      OneForOne -> supRestartSingleActor
+                      AllForOne -> supRestartAllActors
+              in restarter actor sup prevSt failedEv err
 
-              gActorDef1 <- incRestartAttempt gActorDef
-              supRemoveActor gActorDef
-              logMsg $ "Supervisor: Restarting actor " ++ getActorKey gActorDef  ++
-                       " with delay " ++ show restartDelay
-              supStartActor sup gActorDef
-                $ RestartActor {
-                  _spawnPrevState    = prevSt
-                , _spawnQueue       = _actorQueue actor
-                , _spawnError        = err
-                , _spawnFailedEvent  = failedEv
-                , _spawnActorDef     = gActorDef1
-                , _spawnDelay        = restartDelay
-                }
+        supRestartSingleActor actor sup prevSt failedEv err = do
+          let gActorDef      = _actorDef actor
+              backoffDelay   = _supervisorBackoffDelayFn restartAttempt
+              restartAttempt = getRestartAttempts gActorDef
 
-        mkSupDisposable supAsync = createDisposable $ do
-          logMsg "Supervisor: Disposing"
-          cancel supAsync
-          disposeChildren
+          gActorDef1 <- incRestartAttempt gActorDef
+          supRemoveActor gActorDef
+          logMsg $ "Supervisor: Restarting actor " ++ getActorKey gActorDef  ++
+                   " with delay " ++ show backoffDelay
+          supStartActor sup gActorDef
+            $ RestartActor {
+              _spawnPrevState    = prevSt
+            , _spawnQueue        = _actorQueue actor
+            , _spawnCtrlQueue    = _actorCtrlQueue actor
+            , _spawnError        = err
+            , _spawnFailedEvent  = failedEv
+            , _spawnActorDef     = gActorDef1
+            , _spawnDelay        = backoffDelay
+            }
 
-        disposeChildren = do
-          actorMap <- atomically $ readTVar actorMapVar
-          mapM_ dispose $ HashMap.elems actorMap
+        supRestartAllActors failingActor sup prevSt failedEv err = do
+          let failingActorKey = getActorKey failingActor
+          children <- atomically $ readTVar actorMapVar
+          -- TODO: Maybe do this in parallel
+          supRestartSingleActor failingActor sup prevSt failedEv err
+          forM_ (HashMap.elems children) $ \actor -> do
+            let actorKey = getActorKey actor
+            when (actorKey /= failingActorKey) $
+              -- Actor will send back a message to supervisor to restart itself
+              _sendCtrlToActor actor (RestartActorEvent err failedEv)
+
 
         logMsg msg = do
           tid <- myThreadId

@@ -13,7 +13,7 @@ import Control.Monad.State.Strict (execStateT)
 import Control.Exception (SomeException(..), fromException, try, throwIO)
 import Control.Concurrent (forkIO, killThread, myThreadId, yield)
 import Control.Concurrent.MVar (newEmptyMVar, takeMVar, putMVar)
-import Control.Concurrent.STM (atomically, newTChanIO, readTChan, writeTChan)
+import Control.Concurrent.STM (atomically, newTChanIO, orElse, readTChan, writeTChan)
 
 import Data.Maybe (fromMaybe, fromJust)
 import Data.Typeable (typeOf)
@@ -27,10 +27,12 @@ import Rx.Disposable (createDisposable)
 
 import Unsafe.Coerce (unsafeCoerce)
 
-import Rx.Observable (toSyncObservable, safeSubscribe, scanLeftWithItem)
+import Rx.Observable ( safeSubscribe, scanLeftWithItem )
 import Rx.Disposable ( emptyDisposable
                      , newCompositeDisposable, newSingleAssignmentDisposable
                      , toDisposable )
+
+import qualified Rx.Observable as Observable
 import qualified Rx.Disposable as Disposable
 
 import Rx.Actor.EventBus (fromGenericEvent, typeOfEvent)
@@ -41,10 +43,10 @@ import Rx.Actor.Types
 
 _spawnActor :: Supervisor -> SpawnInfo -> IO Actor
 _spawnActor (Supervisor {..}) spawn = do
-    actorEvQueue <- createActorQueue spawn
-    main (_spawnActorDef spawn) actorEvQueue
+    (actorEvQueue, actorCtrlQueue) <- createActorQueues spawn
+    main (_spawnActorDef spawn) actorEvQueue actorCtrlQueue
   where
-    main gActorDef@(GenericActorDef actorDef) actorEvQueue = do
+    main gActorDef@(GenericActorDef actorDef) actorEvQueue actorCtrlQueue = do
         actorDisposable <- newCompositeDisposable
         subDisposable <- newSingleAssignmentDisposable
 
@@ -59,31 +61,35 @@ _spawnActor (Supervisor {..}) spawn = do
         Disposable.append subDisposable actorDisposable
 
         let actor = Actor {
-            _sendToActor            = atomically . writeTChan actorEvQueue
-          , _actorQueue             = actorEvQueue
-          , _actorCleanup           = toDisposable $ actorDisposable
-          , _actorDef               = gActorDef
-          , _actorEventBus          = _supervisorEventBus
+            _actorQueue      = actorEvQueue
+          , _actorCtrlQueue  = actorCtrlQueue
+          , _actorCleanup    = toDisposable $ actorDisposable
+          , _actorDef        = gActorDef
+          , _actorEventBus   = _supervisorEventBus
           }
 
         putMVar actorVar actor
         return actor
       where
         actorHandlerTypes = Set.fromList . HashMap.keys $ _actorReceive actorDef
-        shouldHandleEvent gev = Set.member (show $ typeOfEvent gev) actorHandlerTypes
+        shouldHandleEvent gev = Set.member (typeOfEvent gev) actorHandlerTypes
         sendToActor gev =
           when (shouldHandleEvent gev) $ atomically (writeTChan actorEvQueue gev)
+
+        ---
 
         initActor actorVar subDisposable = do
           actor <- takeMVar actorVar
           disposable <-
             case spawn of
-              (RestartActor _ st' err gev _ delay) -> do
+              (RestartActor _ _ st' err gev _ delay) -> do
                 threadDelay delay
                 restartActor actor (unsafeCoerce st') err gev
               (NewActor {}) -> newActor actor
 
           Disposable.set disposable subDisposable
+
+        ---
 
         newActor actor = do
           result <- _actorPreStart actorDef _supervisorEventBus
@@ -93,6 +99,8 @@ _spawnActor (Supervisor {..}) spawn = do
               sendActorInitErrorToSupervisor actor err
               emptyDisposable
             InitOk st -> startActorLoop actor st
+
+        ---
 
         restartActor actor oldSt err gev = do
           result <- logError $ _actorPostRestart actorDef oldSt err gev
@@ -104,6 +112,8 @@ _spawnActor (Supervisor {..}) spawn = do
               sendActorInitErrorToSupervisor actor initErr
               emptyDisposable
 
+        ---
+
         startActorLoop actor st =
           safeSubscribe (actorObservable actor st)
                         -- TODO: Receive a function that understands
@@ -113,20 +123,44 @@ _spawnActor (Supervisor {..}) spawn = do
                         handleActorObservableError
                         (return ())
 
+        ---
+
         actorObservable actor st =
           scanLeftWithItem (actorLoop actor) st $
           _actorEventBusDecorator actorDef $
-          toSyncObservable actorEvQueue
+          Observable.repeat getEventFromQueue
+
+        ---
+
+        getEventFromQueue = atomically $ do
+          orElse (NormalEvent  <$> readTChan actorEvQueue)
+                 (readTChan actorCtrlQueue)
+
+        ---
 
         handleActorObservableError err =
-          maybe (error "FATAL: Arrived to unhandled error on actorLoop") id $
-                ((\(StopActorLoop _) -> return ()) <$> fromException err) <|>
-                (_sendToSupervisor <$> fromException err)
+          maybe
+            (error $ "FATAL: Arrived to unhandled error on actorLoop: " ++ show err) id
+            (_sendToSupervisor <$> fromException err)
 
+        ---
 
-        actorLoop actor st gev = do
+        actorLoop actor st (NormalEvent gev) = handleNormalEvent actor st gev
+
+        actorLoop actor st (RestartActorEvent err gev) = do
+          logMsg $ "Restart actor from Supervisor"
+          sendActorLoopErrorToSupervisor RestartOne actor err st gev
+
+        actorLoop actor st StopActorEvent = do
+          logMsg $ "Stop actor from Supervisor"
+          _actorPostStop actorDef st
+          stopActorLoop
+
+        ---
+
+        handleNormalEvent actor st gev = do
           let handlers = _actorReceive actorDef
-              evType = show $ typeOfEvent gev
+              evType = typeOfEvent gev
 
           case HashMap.lookup evType handlers of
             Nothing -> return st
@@ -138,6 +172,8 @@ _spawnActor (Supervisor {..}) spawn = do
               case result of
                 Left err  -> handleActorLoopError actor err st gev
                 Right (st', _) -> return st'
+
+        ---
 
         handleActorLoopError actor err@(SomeException innerErr) st gev = do
           putStrLn $ "Received error on " ++ getActorKey gActorDef ++ ": " ++ show err
@@ -155,18 +191,22 @@ _spawnActor (Supervisor {..}) spawn = do
                 Stop -> do
                   logMsg $ "[error: " ++ show err ++ "] Stop actor"
                   _actorPostStop actorDef st
-                  stopActorLoop err
+                  stopActorLoop
                 _ -> do
                   logMsg $ "[error: " ++ show err ++ "] Send message to supervisor actor"
                   sendActorLoopErrorToSupervisor restartDirective actor err st gev
 
-        stopActorLoop = throwIO . StopActorLoop
+        ---
+
+        stopActorLoop = throwIO $ ActorTerminated gActorDef
+
+        ---
 
         sendActorLoopErrorToSupervisor restartDirective actor err st gev = do
           logError_ $
-            if restartDirective == Restart
-              then _actorPreRestart actorDef st err gev
-              else _actorPostStop actorDef st
+            if restartDirective == Stop
+              then _actorPostStop actorDef st
+              else _actorPreRestart actorDef st err gev
 
           logMsg "Notify supervisor to restart actor"
           throwIO
@@ -178,6 +218,8 @@ _spawnActor (Supervisor {..}) spawn = do
                   , _supEvTerminatedDirective = restartDirective
                   }
 
+        ---
+
         sendActorInitErrorToSupervisor actor err =
           throwIO
             $ ActorFailedOnInitialize {
@@ -185,6 +227,7 @@ _spawnActor (Supervisor {..}) spawn = do
             , _supEvTerminatedActor = actor
             }
 
+        ---
 
         logMsg msg = do
           let sep = case msg of
@@ -195,3 +238,11 @@ _spawnActor (Supervisor {..}) spawn = do
           putStrLn $
             "[" ++ show tid ++ "][actorKey:" ++ getActorKey gActorDef ++ "]" ++
             sep ++ msg
+
+_sendToActor :: Actor -> GenericEvent -> IO ()
+_sendToActor actor gev = do
+  atomically $ writeTChan (_actorQueue actor) gev
+
+_sendCtrlToActor :: Actor -> ActorEvent -> IO ()
+_sendCtrlToActor actor aev = do
+  atomically $ writeTChan (_actorCtrlQueue actor) aev

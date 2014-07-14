@@ -3,17 +3,16 @@
 {-# LANGUAGE ExistentialQuantification #-}
 module Rx.Actor.ActorBuilder where
 
+import Data.Typeable (Typeable)
 import Control.Concurrent (ThreadId, forkIO, forkOS)
 import Control.Exception (Exception, SomeException)
 import Control.Monad.Free
 
 import Tiempo (TimeInterval, seconds)
-import Data.Typeable ( Typeable
-                     , typeOf, typeOf1
-                     , typeRepArgs, typeRepTyCon, splitTyConApp )
 
 import qualified Data.HashMap.Strict as HashMap
 
+import Rx.Actor.Util (getHandlerParamType1)
 import Rx.Actor.Types
 
 data ActorBuilderF st x
@@ -208,13 +207,3 @@ addErrorHandler actorDef errorHandler@(ErrorHandler fn) = do
       in actorDef { _actorRestartDirective = actorRestartDirective' }
     Nothing ->
       error "Weird: didn't receive a valid handler that can be inspected"
-
-
-getHandlerParamType1 :: Typeable m => m a -> Maybe String
-getHandlerParamType1 a =
-    if tyCon == fnTy
-       then Just . show $ head tyArgs
-       else Nothing
-  where
-    (tyCon, tyArgs) = splitTyConApp $ typeOf1 a
-    fnTy = typeRepTyCon $ typeOf words

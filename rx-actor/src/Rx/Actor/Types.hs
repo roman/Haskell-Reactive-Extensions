@@ -4,11 +4,12 @@
 module Rx.Actor.Types where
 
 import Control.Concurrent (ThreadId)
+import Control.Concurrent.Async (Async)
 import Control.Concurrent.STM (TVar, TChan, newTChanIO)
 
 import Control.Exception (Exception, SomeException)
 
-import Control.Applicative (Applicative)
+import Control.Applicative (Applicative, (<$>), (<*>))
 import Control.Monad.Trans (MonadIO(..))
 import Control.Monad.State.Strict (StateT)
 
@@ -16,7 +17,7 @@ import qualified Control.Monad.State.Strict as State
 
 import Data.Typeable (Typeable, cast)
 import Data.HashMap.Strict (HashMap)
-import Data.Maybe (fromJust)
+import Data.Maybe (fromMaybe)
 
 import Tiempo (TimeInterval)
 
@@ -31,6 +32,21 @@ import qualified Rx.Disposable as Disposable
 
 data GenericEvent = forall a . Typeable a => GenericEvent a
 
+data RestartDirective
+  = Stop
+  | Resume
+  | Raise
+  | Restart
+  | RestartOne
+  deriving (Show, Eq, Ord, Typeable)
+
+data ActorEvent
+  = NormalEvent GenericEvent
+  | RestartActorEvent !SomeException !GenericEvent
+  | StopActorEvent
+  deriving (Typeable)
+
+
 newtype ActorM st a
   = ActorM { fromActorM :: StateT (st, EventBus) IO a }
   deriving (Functor, Applicative, Monad, MonadIO, Typeable)
@@ -38,8 +54,8 @@ newtype ActorM st a
 type ActorKeyVal = String
 type ActorKey = Maybe ActorKeyVal
 type EventBus = Subject GenericEvent
-type EventBusObservable = Observable Sync GenericEvent
-type EventBusDecorator = EventBusObservable -> EventBusObservable
+type EventBusDecorator =
+  Observable Sync ActorEvent -> Observable Sync ActorEvent
 type AttemptCount = Int
 
 data InitResult st
@@ -54,15 +70,11 @@ instance Functor InitResult where
 data EventHandler st
   = forall t . Typeable t => EventHandler String (t -> ActorM st ())
 
-data RestartDirective
-  = Stop
-  | Resume
-  | Raise
-  | Restart
-  deriving (Show, Eq, Ord, Typeable)
-
 data ErrorHandler st
   = forall e . (Typeable e, Exception e) => ErrorHandler (e -> st -> IO RestartDirective)
+
+class IActor actor where
+  getActorKey :: actor -> String
 
 data ActorDef st
   = ActorDef {
@@ -81,17 +93,28 @@ data ActorDef st
   }
   deriving (Typeable)
 
+instance IActor (ActorDef st) where
+  getActorKey actor =
+    fromMaybe (error "FATAL: getActorKey: Actor must have an actor key")
+              (_actorChildKey actor)
+
 data GenericActorDef = forall st . GenericActorDef (ActorDef st)
+
+instance IActor GenericActorDef where
+  getActorKey (GenericActorDef actorDef) = getActorKey actorDef
 
 data Actor
   = Actor {
-    _sendToActor           :: !(GenericEvent -> IO ())
-  , _actorQueue            :: !(TChan GenericEvent)
+    _actorQueue            :: !(TChan GenericEvent)
+  , _actorCtrlQueue        :: !(TChan ActorEvent)
   , _actorCleanup          :: !Disposable
   , _actorDef              :: !GenericActorDef
   , _actorEventBus         :: !EventBus
   }
   deriving (Typeable)
+
+instance IActor Actor where
+  getActorKey = getActorKey . _actorDef
 
 instance ToDisposable Actor where
   toDisposable = Disposable.toDisposable . _actorCleanup
@@ -100,12 +123,15 @@ instance IDisposable Actor where
   dispose = Disposable.dispose . Disposable.toDisposable
   isDisposed = Disposable.isDisposed . Disposable.toDisposable
 
+--------------------------------------------------------------------------------
+
 data SpawnInfo
   = NewActor {
     _spawnActorDef   :: !GenericActorDef
   }
   | forall st . RestartActor {
     _spawnQueue       :: !(TChan GenericEvent)
+  , _spawnCtrlQueue   :: !(TChan ActorEvent)
   , _spawnPrevState   :: !st
   , _spawnError       :: !SomeException
   , _spawnFailedEvent :: !GenericEvent
@@ -148,12 +174,6 @@ instance Show SupervisionEvent where
 
 instance Exception SupervisionEvent
 
-data StopActorLoop
-  = StopActorLoop SomeException
-  deriving (Show, Typeable)
-
-instance Exception StopActorLoop
-
 data SupervisorStrategy
   = OneForOne
   | AllForOne
@@ -172,11 +192,11 @@ data SupervisorDef
 data Supervisor
   = Supervisor {
     _supervisorDef        :: !SupervisorDef
+  , _supervisorAsync      :: !(Async ())
   , _supervisorEventBus   :: !EventBus
   , _supervisorDisposable :: !Disposable
   , _supervisorChildren   :: !(TVar (HashMap ActorKeyVal Actor))
   , _sendToSupervisor     :: !(SupervisionEvent -> IO ())
-  , _supervisorJoin       :: !(IO ())
   }
   deriving (Typeable)
 
@@ -188,11 +208,6 @@ instance ToDisposable Supervisor where
   toDisposable = Disposable.toDisposable . _supervisorDisposable
 
 --------------------------------------------------------------------------------
-
-getActorKey :: GenericActorDef -> String
-getActorKey (GenericActorDef actorDef) =
-  fromJust $ _actorChildKey actorDef
-{-# INLINE getActorKey #-}
 
 getRestartAttempts :: GenericActorDef -> Int
 getRestartAttempts (GenericActorDef actorDef) = _actorRestartAttempt actorDef
@@ -212,6 +227,8 @@ getRestartDelay = error "TODO"
 
 --------------------------------------------------------------------------------
 
-createActorQueue :: SpawnInfo -> IO (TChan GenericEvent)
-createActorQueue (NewActor {}) = newTChanIO
-createActorQueue spawn@(RestartActor {}) = return $ _spawnQueue spawn
+createActorQueues :: SpawnInfo
+                  -> IO (TChan GenericEvent, TChan ActorEvent)
+createActorQueues (NewActor {}) = (,) <$> newTChanIO <*> newTChanIO
+createActorQueues spawn@(RestartActor {}) =
+  return (_spawnQueue spawn, _spawnCtrlQueue spawn)

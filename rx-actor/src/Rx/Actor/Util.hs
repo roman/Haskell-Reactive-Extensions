@@ -1,6 +1,10 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 module Rx.Actor.Util where
 
+import Data.Typeable ( Typeable
+                     , typeOf, typeOf1
+                     , typeRepTyCon, splitTyConApp )
+
 import Control.Monad (void)
 import Control.Exception (SomeException, catch)
 
@@ -14,10 +18,11 @@ logError_ :: IO a -> IO ()
 logError_ action =
   (void action) `catch` (\(_ :: SomeException) -> return ())
 
-loopUntil_ :: Monad m => [a] -> (a -> m (Maybe (m ()))) -> m ()
-loopUntil_ [] _  = return ()
-loopUntil_ (a:as) fn = do
-  result <- fn a
-  case result of
-    Just action -> action
-    Nothing -> loopUntil_ as fn
+getHandlerParamType1 :: Typeable m => m a -> Maybe String
+getHandlerParamType1 a =
+    if tyCon == fnTy
+       then Just . show $ head tyArgs
+       else Nothing
+  where
+    (tyCon, tyArgs) = splitTyConApp $ typeOf1 a
+    fnTy = typeRepTyCon $ typeOf words
