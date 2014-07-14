@@ -19,24 +19,28 @@ module Rx.Observable
        , Observable.foldLeft
        , Observable.map
        , Observable.mapM
-       , Observable.timer
+       , Observable.repeat
+       , Observable.repeat'
+       , Observable.repeatEvery
+       , Observable.repeatEvery'
        , Observable.scanLeft
        , Observable.scanLeftWithItem
+       , Observable.timer
        ) where
 
 import Control.Applicative (Applicative (..))
 import Control.Monad       (ap)
 
-import qualified Rx.Observable.Filter    as Observable
-import qualified Rx.Observable.Fold      as Observable
-import qualified Rx.Observable.Map       as Observable
-import qualified Rx.Observable.Merge     as Observable
-import qualified Rx.Observable.Replicate as Observable
-import qualified Rx.Observable.Scan      as Observable
-import qualified Rx.Observable.Take      as Observable
-import qualified Rx.Observable.Take      as Observable
-import qualified Rx.Observable.Timer     as Observable
-import qualified Rx.Observable.Timeout   as Observable
+import qualified Rx.Observable.Filter  as Observable
+import qualified Rx.Observable.Fold    as Observable
+import qualified Rx.Observable.Map     as Observable
+import qualified Rx.Observable.Merge   as Observable
+import qualified Rx.Observable.Repeat  as Observable
+import qualified Rx.Observable.Scan    as Observable
+import qualified Rx.Observable.Take    as Observable
+import qualified Rx.Observable.Take    as Observable
+import qualified Rx.Observable.Timer   as Observable
+import qualified Rx.Observable.Timeout as Observable
 
 import Rx.Disposable (Disposable, dispose)
 import Rx.Scheduler  (Async, Scheduler, Sync, newThread, schedule)

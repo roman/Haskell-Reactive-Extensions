@@ -26,7 +26,7 @@ library
     Rx.Observable.Fold,
     Rx.Observable.Map,
     Rx.Observable.Merge,
-    Rx.Observable.Replicate,
+    Rx.Observable.Repeat,
     Rx.Observable.Scan,
     Rx.Observable.Scheduler,
     Rx.Observable.Take,
