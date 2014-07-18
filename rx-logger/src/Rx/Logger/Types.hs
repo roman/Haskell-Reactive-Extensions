@@ -19,16 +19,15 @@ module Rx.Logger.Types
 import Data.Typeable (Typeable)
 import GHC.Generics  (Generic)
 
-import Control.Concurrent         (ThreadId, myThreadId)
+import Control.Concurrent         (ThreadId)
 import Control.Monad.Trans        (MonadIO (..), lift)
 import Control.Monad.Trans.Reader (ReaderT, ask, local, runReaderT)
 
 import qualified Data.Text      as Text
 import qualified Data.Text.Lazy as LText
-import           Data.Time      (UTCTime, getCurrentTime)
+import           Data.Time      (UTCTime)
 
-import Rx.Observable (onNext)
-import Rx.Subject    (Subject)
+import Rx.Subject (Subject)
 
 --------------------------------------------------------------------------------
 
@@ -66,6 +65,7 @@ data LogEntry
   deriving (Show, Typeable, Generic)
 
 type Logger = Subject LogEntry
+type LogEntryFormatter = LogEntry -> LText.Text
 
 --------------------------------------------------------------------------------
 
@@ -97,46 +97,6 @@ data LogLevel
   | NONE    -- ^ Special level that can be used to turn off logging
   deriving (Show, Eq, Ord, Enum, Generic, Typeable)
 
-class MonadLog m where
-  logMsg :: ToLogMsg a => LogLevel -> a -> m ()
-
-trace :: (MonadLog m, ToLogMsg a) => a -> m ()
-trace = logMsg TRACE
-
-loud :: (MonadLog m, ToLogMsg a) => a -> m ()
-loud = logMsg LOUD
-
-noisy :: (MonadLog m, ToLogMsg a) => a -> m ()
-noisy = logMsg NOISY
-
-config :: (MonadLog m, ToLogMsg a) => a -> m ()
-config = logMsg CONFIG
-
-info :: (MonadLog m, ToLogMsg a) => a -> m ()
-info = logMsg INFO
-
-warn :: (MonadLog m, ToLogMsg a) => a -> m ()
-warn = logMsg WARNING
-
-severe :: (MonadLog m, ToLogMsg a) => a -> m ()
-severe = logMsg SEVERE
-
---------------------
-
-instance MonadIO m => MonadLog (ReaderT Logger m) where
-  logMsg level msg = do
-    tracer <- ask
-    time   <- liftIO getCurrentTime
-    tid    <- liftIO myThreadId
-    liftIO $ onNext tracer $! LogEntry time (LogMsg msg) level tid
-
-instance MonadIO m => MonadLog (ReaderT (LogLevel, Logger) m) where
-  logMsg _ msg = do
-    (level, tracer) <- ask
-    time <- liftIO getCurrentTime
-    tid  <- liftIO myThreadId
-    liftIO $ onNext tracer $! LogEntry time (LogMsg msg) level tid
-
 --------------------------------------------------------------------------------
 
 class HasLogger a where
@@ -146,5 +106,3 @@ instance HasLogger (Subject LogEntry) where
   getLogger = id
 
 --------------------------------------------------------------------------------
-
-type LogEntryFormatter = LogEntry -> LText.Text

@@ -3,8 +3,9 @@ module Main where
 import qualified Control.Concurrent.Async as Async
 import           Control.Monad            (void)
 
-import Rx.Logger            (defaultSettings, newLogger, setupTracer, trace,
-                             ttccFormat, withLogger)
+import Rx.Logger            (defaultSettings, newLogger, setupTracer,
+                             ttccFormat)
+import Rx.Logger.Monad      (trace, withLogger)
 import Rx.Logger.Serializer (serializeToHandle)
 -- import qualified Rx.Logger.Serializer.Color as Color (serializeToHandle)
 

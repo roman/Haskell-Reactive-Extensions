@@ -10,7 +10,7 @@ import           Rx.Disposable (Disposable, emptyDisposable,
                                 newCompositeDisposable)
 import qualified Rx.Disposable as Disposable
 
-import Rx.Logger.Core       (withLogger)
+import Rx.Logger.Core
 import Rx.Logger.Format     (ttccFormat)
 import Rx.Logger.Serializer (serializeToFile, serializeToHandle)
 import Rx.Logger.Types
@@ -44,11 +44,10 @@ setupTracer settings logger = do
     setupFileTrace =
       lookupEnv (prefix ++ "_TRACE_FILE")
           >>= maybe emptyDisposable
-                    (\filepath ->
-                        withLogger logger $ do
-                          sub <- lift $ serializeToFile filepath entryF logger
-                          config $ "Log tracing on file " ++ filepath
-                          return sub)
+                    (\filepath -> do
+                         sub <- serializeToFile filepath entryF logger
+                         config ("Log tracing on file " ++ filepath) logger
+                         return sub)
     setupHandleTrace = do
       -- NOTE: Can use either STDOUT or STDERR for logging
       results <- sequence [
@@ -57,12 +56,11 @@ setupTracer settings logger = do
         , liftM (maybe Nothing (const $ Just stderr))
                 (lookupEnv (prefix ++ "_TRACE_STDERR"))
         ]
-      case (getFirst . mconcat . map First $ results) of
+      case getFirst . mconcat . map First $ results of
         Just handle -> do
           sub <- serializeToHandle handle entryF logger
-          withLogger logger $ do
-            config $ "Log tracing on handle " ++ show handle
-            return sub
-        Nothing     -> emptyDisposable
+          config ("Log tracing on handle " ++ show handle) logger
+          return sub
+        Nothing -> emptyDisposable
 
 --------------------------------------------------------------------------------

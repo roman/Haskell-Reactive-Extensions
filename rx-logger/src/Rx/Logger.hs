@@ -1,7 +1,5 @@
 module Rx.Logger
-       ( withLogger
-       , withLogger'
-       , newLogger
+       ( newLogger
        , logF
        , trace
        , loud
@@ -26,8 +24,8 @@ module Rx.Logger
        , ToLogMsg(..)
        , LogLevel(..)
        , LogEntry(..)
+       , LogMsg (..)
        , HasLogger(..)
-       , MonadLog(..)
        ) where
 
 

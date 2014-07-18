@@ -19,6 +19,7 @@ cabal-version:       >=1.10
 library
   exposed-modules:
     Rx.Logger,
+    Rx.Logger.Monad,
     Rx.Logger.Format,
     Rx.Logger.Serializer,
     Rx.Logger.Env
