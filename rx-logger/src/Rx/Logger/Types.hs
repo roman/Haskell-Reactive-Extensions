@@ -45,7 +45,6 @@ instance ToLogMsg LText.Text where
 instance ToLogMsg Text.Text where
   toLogMsg = LText.fromChunks . (:[])
 
-
 instance ToLogMsg String where
   toLogMsg = LText.pack
 

@@ -1,6 +1,10 @@
-{-# LANGUAGE FlexibleContexts  #-}
-{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FlexibleContexts           #-}
+{-# LANGUAGE FlexibleInstances          #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Rx.Logger.Monad where
+
+import Control.Applicative (Applicative, (<$>))
+import Control.Monad       (liftM)
 
 import Data.Text.Format        (Format, format)
 import Data.Text.Format.Params (Params)
@@ -34,34 +38,23 @@ warn = logMsg WARNING
 severe :: (MonadLog m, ToLogMsg a) => a -> m ()
 severe = logMsg SEVERE
 
---------------------
+--------------------------------------------------------------------------------
 
-instance MonadIO m => MonadLog (ReaderT Logger m) where
-  logMsg level msg = do
+newtype LogT m a
+  = LogT (ReaderT Logger m a)
+  deriving (Functor, Applicative, Monad, MonadIO)
+
+instance (MonadIO m) => MonadLog (LogT m) where
+  logMsg level msg = LogT $ do
     logger <- ask
     liftIO $ Core.logMsg level msg logger
 
-instance MonadIO m => MonadLog (ReaderT (LogLevel, Logger) m) where
-  logMsg _ msg = do
-    (level, logger) <- ask
-    liftIO $ Core.logMsg level msg logger
-
---------------------------------------------------------------------------------
-
-withLogger :: ( MonadIO m, HasLogger s )
-      => s
-      -> ReaderT Logger m result
+withLogger :: (HasLogger logger, MonadIO m)
+      => logger
+      -> LogT m result
       -> m result
-withLogger s action = runReaderT action (getLogger s)
-
-withLogger'
-  :: ( MonadIO m, HasLogger s )
-  => LogLevel
-  -> s
-  -> ReaderT (LogLevel, Logger) m result
-  -> m result
-withLogger' level s action =
-  runReaderT action (level, getLogger s)
+withLogger logger (LogT action) =
+  runReaderT action $ getLogger logger
 
 --------------------------------------------------------------------------------
 

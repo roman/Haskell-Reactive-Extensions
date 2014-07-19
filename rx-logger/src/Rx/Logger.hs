@@ -1,5 +1,6 @@
 module Rx.Logger
        ( newLogger
+       , logMsg
        , logF
        , trace
        , loud
@@ -26,9 +27,11 @@ module Rx.Logger
        , LogEntry(..)
        , LogMsg (..)
        , HasLogger(..)
+       , Only(..)
        ) where
 
 
+import Data.Text.Format.Types (Only (..))
 import Rx.Logger.Core
 import Rx.Logger.Env
 import Rx.Logger.Format
