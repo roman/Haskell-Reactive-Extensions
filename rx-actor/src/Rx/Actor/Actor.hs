@@ -19,19 +19,21 @@ import qualified Data.HashMap.Strict as HashMap
 
 import Tiempo.Concurrent (threadDelay)
 
-
 import Unsafe.Coerce (unsafeCoerce)
 
 import Rx.Observable ( safeSubscribe, scanLeftWithItem )
 import Rx.Disposable ( emptyDisposable, createDisposable
                      , newCompositeDisposable, newSingleAssignmentDisposable
                      , toDisposable )
-import Rx.Logger (trace, noisyF, noisy, loudF, Only(..))
 
 import qualified Rx.Observable as Observable
 import qualified Rx.Disposable as Disposable
 
-import Rx.Actor.Monad (execActorM, runActorM, runPreActorM)
+import Rx.Logger (loudF, Only(..))
+import qualified Rx.Logger.Monad as Logger
+
+import Rx.Actor.Monad ( execActorM, runActorM, runPreActorM
+                      , evalActorM, evalReadOnlyActorM )
 import Rx.Actor.EventBus (fromGenericEvent, typeOfEvent)
 import Rx.Actor.Util (logError, logError_)
 import Rx.Actor.Types
@@ -41,9 +43,14 @@ import Rx.Actor.Types
 _spawnActor :: Supervisor -> SpawnInfo -> IO Actor
 _spawnActor (Supervisor {..}) spawn = do
     (actorEvQueue, actorCtrlQueue) <- createActorQueues spawn
-    main (_spawnActorDef spawn) _supervisorLogger actorEvQueue actorCtrlQueue
+    main (_spawnActorDef spawn)
+         _supervisorLogger _supervisorEventBus
+         actorEvQueue actorCtrlQueue
   where
-    main gActorDef@(GenericActorDef actorDef) logger actorEvQueue actorCtrlQueue = do
+    main gActorDef@(GenericActorDef actorDef)
+         logger evBus
+         actorEvQueue actorCtrlQueue = do
+
         actorDisposable <- newCompositeDisposable
         subDisposable <- newSingleAssignmentDisposable
 
@@ -52,7 +59,7 @@ _spawnActor (Supervisor {..}) spawn = do
 
         threadDisposable <- createDisposable $ do
           loudF "[actorKey: {}] actor disposable called"
-                (Only $ getActorKey actorDef)
+                (Only $ toActorKey actorDef)
                 logger
           killThread actorTid
 
@@ -64,8 +71,8 @@ _spawnActor (Supervisor {..}) spawn = do
           , _actorCtrlQueue  = actorCtrlQueue
           , _actorCleanup    = toDisposable actorDisposable
           , _actorDef        = gActorDef
-          , _actorEventBus   = _supervisorEventBus
-          , _actorLogger     = _supervisorLogger
+          , _actorEventBus   = evBus
+          , _actorLogger     = logger
           }
 
         putMVar actorVar actor
@@ -87,8 +94,8 @@ _spawnActor (Supervisor {..}) spawn = do
         ---
 
         newActor actor = do
-          result <- runPreActorM (getActorKey actor)
-                                 _supervisorEventBus
+          result <- runPreActorM (toActorKey actor)
+                                 evBus
                                  logger
                                  (_actorPreStart actorDef)
           threadDelay $ _actorDelayAfterStart actorDef
@@ -102,13 +109,14 @@ _spawnActor (Supervisor {..}) spawn = do
 
         restartActor actor oldSt err gev = do
           result <-
-            logError $ runActorM oldSt _supervisorEventBus  actor
-                                 (_actorPostRestart actorDef err gev)
+            logError $
+               evalReadOnlyActorM oldSt evBus actor
+                                  (_actorPostRestart actorDef err gev)
           case result of
             -- TODO: Do a warning with the error
             Nothing -> startActorLoop actor oldSt
-            Just (InitOk newSt, _) -> startActorLoop actor newSt
-            Just (InitFailure initErr, _) -> do
+            Just (InitOk newSt) -> startActorLoop actor newSt
+            Just (InitFailure initErr) -> do
               void $ sendActorInitErrorToSupervisor actor initErr
               emptyDisposable
 
@@ -148,12 +156,14 @@ _spawnActor (Supervisor {..}) spawn = do
         actorLoop actor st (NormalEvent gev) = handleNormalEvent actor st gev
 
         actorLoop actor st (RestartActorEvent err gev) = do
-          trace ("Restart actor from Supervisor" :: String) logger
+          evalReadOnlyActorM st evBus actor $
+            Logger.trace ("Restart actor from Supervisor" :: String)
           sendActorLoopErrorToSupervisor RestartOne actor err st gev
 
         actorLoop actor st StopActorEvent = do
-          trace ("Stop actor from Supervisor" :: String) logger
-          runActorM st _supervisorEventBus actor $ _actorPostStop actorDef
+          evalReadOnlyActorM st evBus actor $ do
+            Logger.trace ("Stop actor from Supervisor" :: String)
+            _actorPostStop actorDef
           stopActorLoop
 
         ---
@@ -165,10 +175,11 @@ _spawnActor (Supervisor {..}) spawn = do
           case HashMap.lookup evType handlers of
             Nothing -> return st
             Just (EventHandler _ handler) -> do
-              noisyF "[type: {}] actor handling event" (Only evType) logger
               result <-
-                try $ execActorM st _supervisorEventBus actor
-                                 (handler $ fromJust $ fromGenericEvent gev)
+                try
+                  $ execActorM st evBus actor $ do
+                    Logger.noisyF "[type: {}] actor handling event" (Only evType)
+                    handler (fromJust $ fromGenericEvent gev)
               case result of
                 Left err  -> handleActorLoopError actor err st gev
                 Right (st', _, _) -> return st'
@@ -176,27 +187,34 @@ _spawnActor (Supervisor {..}) spawn = do
         ---
 
         handleActorLoopError actor err@(SomeException innerErr) st gev = do
-          noisyF "Received error on {}: {}" (getActorKey gActorDef, show err) logger
+          let runActorCtx = evalReadOnlyActorM st evBus actor
+
+          runActorCtx $
+            Logger.noisyF "Received error on {}: {}"
+                          (toActorKey gActorDef, show err)
+
           let errType = show $ typeOf innerErr
               restartDirectives = _actorRestartDirective actorDef
           case HashMap.lookup errType restartDirectives of
             Nothing ->
               sendActorLoopErrorToSupervisor Restart actor err st gev
             Just (ErrorHandler errHandler) -> do
-              (restartDirective, _) <-
-                 runActorM st _supervisorEventBus actor $
-                   errHandler (fromJust $ fromException err)
+              restartDirective <-
+                runActorCtx $ errHandler (fromJust $ fromException err)
               case restartDirective of
                 Resume -> do
-                  noisyF "[error: {}] Resume actor" (Only $ show err) logger
+                  runActorCtx
+                    $ Logger.noisyF "[error: {}] Resume actor" (Only $ show err)
                   return st
                 Stop -> do
-                  noisyF "[error: {}] Stop actor" (Only $ show err) logger
-                  runActorM st _supervisorEventBus actor
-                    $ _actorPostStop actorDef
+                  runActorCtx $ do
+                    Logger.noisyF "[error: {}] Stop actor" (Only $ show err)
+                    _actorPostStop actorDef
                   stopActorLoop
                 _ -> do
-                  noisyF "[error: {}] Send error to supervisor" (Only $ show err) logger
+                  runActorCtx $
+                    Logger.noisyF "[error: {}] Send error to supervisor"
+                                  (Only $ show err)
                   sendActorLoopErrorToSupervisor restartDirective actor err st gev
 
         ---
@@ -206,13 +224,15 @@ _spawnActor (Supervisor {..}) spawn = do
         ---
 
         sendActorLoopErrorToSupervisor restartDirective actor err st gev = do
+          let runActorCtx = evalReadOnlyActorM st _supervisorEventBus actor
+
           logError_
-            $ runActorM st _supervisorEventBus actor
+            $ runActorCtx
             $ if restartDirective == Stop
               then _actorPostStop actorDef
               else _actorPreRestart actorDef err gev
 
-          noisy ("Notify supervisor to restart actor" :: String) logger
+          runActorCtx $ Logger.noisy ("Notify supervisor to restart actor" :: String)
           throwIO
             ActorFailedWithError {
                     _supEvTerminatedState = st

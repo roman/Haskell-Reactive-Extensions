@@ -136,12 +136,12 @@ _createSupervisor evBus logger supDef@(SupervisorDef {..}) = do
         supSend = atomically . writeTChan ctrlQueue
 
         supAddActor sup gActorDef = do
-          let actorKey = getActorKey gActorDef
+          let actorKey = toActorKey gActorDef
           noisyF "Supervisor: Starting new actor {}" (Only actorKey) logger
           supStartActor sup gActorDef $ NewActor gActorDef
 
         supRemoveActor gActorDef = do
-          let actorKey = getActorKey gActorDef
+          let actorKey = toActorKey gActorDef
           wasRemoved <- atomically $ do
             actorMap <- readTVar actorMapVar
             case HashMap.lookup actorKey actorMap of
@@ -158,7 +158,7 @@ _createSupervisor evBus logger supDef@(SupervisorDef {..}) = do
           throwIO err
 
         supStartActor sup gActorDef spawnInfo = do
-          let actorKey = getActorKey gActorDef
+          let actorKey = toActorKey gActorDef
           actor <- _spawnActor sup $ spawnInfo
           atomically
             $ modifyTVar actorMapVar
@@ -190,7 +190,7 @@ _createSupervisor evBus logger supDef@(SupervisorDef {..}) = do
           gActorDef1 <- incRestartAttempt gActorDef
           supRemoveActor gActorDef
           noisyF "Supervisor: Restarting actor {} with delay {}"
-                 (getActorKey gActorDef, show backoffDelay)
+                 (toActorKey gActorDef, show backoffDelay)
                  logger
 
           supStartActor sup gActorDef
@@ -205,12 +205,12 @@ _createSupervisor evBus logger supDef@(SupervisorDef {..}) = do
             }
 
         supRestartAllActors failingActor sup prevSt failedEv err = do
-          let failingActorKey = getActorKey failingActor
+          let failingActorKey = toActorKey failingActor
           children <- atomically $ readTVar actorMapVar
           -- TODO: Maybe do this in parallel
           supRestartSingleActor failingActor sup prevSt failedEv err
           forM_ (HashMap.elems children) $ \actor -> do
-            let actorKey = getActorKey actor
+            let actorKey = toActorKey actor
             when (actorKey /= failingActorKey) $
               -- Actor will send back a message to supervisor to restart itself
               _sendCtrlToActor actor (RestartActorEvent err failedEv)

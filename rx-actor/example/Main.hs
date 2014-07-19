@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 module Main where
@@ -37,17 +38,18 @@ numberPrinter = defActor $ do
     startDelay (seconds 5)
 
     preStart $ do
-      liftIO $ putStrLn "preStart printer"
+      noisy ("preStart printer" :: String)
       return $ InitOk ()
 
     postStop $
-      liftIO $ putStrLn "postStop printer"
+      noisy ("postStop printer" :: String)
 
     preRestart $ \err _ev ->
-      liftIO $ putStrLn $ "preRestart printer => " ++ show err
+      noisyF "preRestart printer => {}"
+             (Only $ show err)
 
     postRestart $ \_err _ev -> do
-      liftIO $ putStrLn "postRestart printer : recovering from failure"
+      noisy ("postRestart printer : recovering from failure" :: String)
       return $ InitOk ()
 
     desc "Print integers on terminal"
@@ -70,20 +72,20 @@ numberAccumulator = defActor $ do
     -- * Raise   - raise the error on the supervisor level
     onError $ \(_err :: ErrorCall) -> return Restart
     onError $ \(_err :: AssertionFailed) -> do
-      liftIO $ putStrLn "Resuming assertion failed error"
+      noisy ("Resuming assertion failed error" :: String)
       return Resume
 
     -- This function is the "constructor" of the actor
     -- here you can return a value that can be InitOk or
     -- InitFailure
     preStart $ do
-      liftIO $ putStrLn "preStart accum"
+      noisy ("preStart accum" :: String)
       return $ InitOk 0
 
     -- This function is the "finalizer" of the actor
     -- here you should do cleanup of external resources
     postStop $
-      liftIO $ putStrLn "postStop accum"
+      noisy ("postStop accum" :: String)
 
     -- This gets executed before a restart is about to happen
     -- You will receive:
@@ -91,7 +93,7 @@ numberAccumulator = defActor $ do
     -- - the exception that happened on the actor
     -- - the event that caused it
     preRestart $ \err _ev -> do
-      liftIO $ putStrLn $ "preRestart accum => " ++ show err
+      noisyF "preRestart accum => {}" (Only $ show err)
 
     -- This gets executed after a restart has happened
     -- You will receive:
@@ -100,8 +102,8 @@ numberAccumulator = defActor $ do
     -- - the event that caused it
     postRestart $ \_err _ev -> do
       prevCount <- getState
-      liftIO $ putStrLn "postRestart accum: recovering from failure"
-      liftIO $ putStrLn $ "count was: " ++ show prevCount
+      noisy ("postRestart accum: recovering from failure" :: String)
+      noisyF "count was: {}" (Only prevCount)
       return $ InitOk 0
 
     -- General description for the event handler
@@ -131,7 +133,7 @@ numberAccumulator = defActor $ do
     printNumber _ = do
       n <- getState
       emit (CallFail ())
-      liftIO $ putStrLn $ "acc => " ++ show n
+      noisyF "acc => {}" (Only $ show n)
 
     -- This raises a CallError exception
     callError :: CallFail -> ActorM Int ()

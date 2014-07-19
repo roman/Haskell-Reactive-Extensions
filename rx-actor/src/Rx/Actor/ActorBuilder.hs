@@ -12,7 +12,6 @@ import Tiempo (TimeInterval, seconds)
 
 import qualified Data.HashMap.Strict as HashMap
 
-import Rx.Actor.Monad (getState)
 import Rx.Actor.Util (getHandlerParamType1)
 import Rx.Actor.Types
 
@@ -20,11 +19,11 @@ data ActorBuilderF st x
   = SetActorKeyI String x
   | SetStartDelayI TimeInterval x
   | PreStartI (PreActorM (InitResult st)) x
-  | PostStopI (ActorM st ()) x
-  | PreRestartI  (SomeException -> GenericEvent -> ActorM st ()) x
-  | PostRestartI (SomeException -> GenericEvent -> ActorM st (InitResult st)) x
+  | PostStopI (RO_ActorM st ()) x
+  | PreRestartI  (SomeException -> GenericEvent -> RO_ActorM st ()) x
+  | PostRestartI (SomeException -> GenericEvent -> RO_ActorM st (InitResult st)) x
   | forall e. (Typeable e, Exception e)
-      => OnErrorI (e -> ActorM st RestartDirective)  x
+      => OnErrorI (e -> RO_ActorM st RestartDirective)  x
   | HandlerDescI String x
   | SetForkerI (IO () -> IO ThreadId) x
   | AppendEventBusDecoratorI EventBusDecorator x
@@ -76,7 +75,7 @@ preStart action = liftF $ PreStartI action ()
 -- >>> _actorPostStop actorDef
 -- >>> takeMVar result
 -- "STOPPED"
-postStop :: (ActorM st ()) -> ActorBuilder st ()
+postStop :: (RO_ActorM st ()) -> ActorBuilder st ()
 postStop action = liftF $ PostStopI action ()
 
 -- |
@@ -88,7 +87,7 @@ postStop action = liftF $ PostStopI action ()
 -- >>> takeMVar result
 -- 777
 preRestart
-  :: (SomeException -> GenericEvent -> ActorM st ())
+  :: (SomeException -> GenericEvent -> RO_ActorM st ())
   -> ActorBuilder st ()
 preRestart action = liftF $ PreRestartI action ()
 
@@ -101,13 +100,13 @@ preRestart action = liftF $ PreRestartI action ()
 -- >>> takeMVar result
 -- 777
 postRestart
-  :: (SomeException -> GenericEvent -> ActorM st (InitResult st))
+  :: (SomeException -> GenericEvent -> RO_ActorM st (InitResult st))
   -> ActorBuilder st ()
 postRestart action = liftF $ PostRestartI action ()
 
 onError
   :: (Typeable e, Exception e)
-  => (e -> ActorM st RestartDirective)
+  => (e -> RO_ActorM st RestartDirective)
   -> ActorBuilder st ()
 onError action = liftF $ OnErrorI action ()
 

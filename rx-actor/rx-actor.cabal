@@ -38,6 +38,7 @@ library
     unordered-containers,
     mtl,
     free,
+    text,
 
     tiempo,
     rx-disposable,

@@ -22,10 +22,11 @@ module Rx.Actor
        -- ^ * EventBus API
        , fromGenericEvent, toGenericEvent, emitEvent, typeOfEvent, filterEvent, mapEvent
        -- ^ * Logger API
-       , module Logger
+       , module Logger, Only(..)
        ) where
 
 import Data.Typeable (Typeable)
+import Rx.Logger (Only(..))
 import Rx.Logger.Monad as Logger
 import Rx.Actor.ActorBuilder
 import Rx.Actor.Monad

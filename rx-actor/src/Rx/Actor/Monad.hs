@@ -13,9 +13,6 @@ import Rx.Logger (Logger)
 import Rx.Actor.EventBus (toGenericEvent)
 import Rx.Actor.Types
 
-getState :: ActorM st st
-getState = ActorM $ (\(st, _, _) -> st) `fmap` State.get
-
 setState :: st -> ActorM st ()
 setState st = ActorM $ do
   (_, evBus, actor) <- State.get
@@ -38,6 +35,13 @@ execActorM
 execActorM st evBus actor (ActorM action) =
   State.execStateT action (st, evBus, actor)
 
+evalActorM
+  :: st -> EventBus -> Actor
+  -> ActorM st a
+  -> IO a
+evalActorM st evBus actor (ActorM action) =
+  State.evalStateT action (st, evBus, actor)
+
 runActorM
   :: st
   -> EventBus -> Actor
@@ -50,3 +54,8 @@ runPreActorM
    :: ActorKeyVal -> EventBus -> Logger -> PreActorM a -> IO a
 runPreActorM actorKey evBus logger (PreActorM action) =
   Reader.runReaderT action (actorKey, evBus, logger)
+
+evalReadOnlyActorM
+  :: st -> EventBus -> Actor -> RO_ActorM st a -> IO a
+evalReadOnlyActorM st evBus actor (RO_ActorM action) =
+  State.evalStateT action (st, evBus, actor)
