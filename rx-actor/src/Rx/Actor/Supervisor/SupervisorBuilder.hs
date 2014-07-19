@@ -1,13 +1,6 @@
 {-# LANGUAGE ExistentialQuantification #-}
 module Rx.Actor.Supervisor.SupervisorBuilder where
 
-import Control.Concurrent.STM (atomically, newTChanIO, newTVarIO, modifyTVar, writeTChan)
-
-import qualified Data.HashMap.Strict as HashMap
-
-import Rx.Subject (Subject)
-import Rx.Disposable (newCompositeDisposable)
-
 import Tiempo (TimeInterval, seconds)
 import Control.Monad.Free
 

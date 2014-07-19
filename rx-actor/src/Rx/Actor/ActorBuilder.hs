@@ -12,18 +12,19 @@ import Tiempo (TimeInterval, seconds)
 
 import qualified Data.HashMap.Strict as HashMap
 
+import Rx.Actor.Monad (getState)
 import Rx.Actor.Util (getHandlerParamType1)
 import Rx.Actor.Types
 
 data ActorBuilderF st x
   = SetActorKeyI String x
   | SetStartDelayI TimeInterval x
-  | PreStartI (EventBus -> IO (InitResult st)) x
-  | PostStopI (st -> IO ()) x
-  | PreRestartI  (st -> SomeException -> GenericEvent -> IO ()) x
-  | PostRestartI (st -> SomeException -> GenericEvent -> IO (InitResult st)) x
+  | PreStartI (PreActorM (InitResult st)) x
+  | PostStopI (ActorM st ()) x
+  | PreRestartI  (SomeException -> GenericEvent -> ActorM st ()) x
+  | PostRestartI (SomeException -> GenericEvent -> ActorM st (InitResult st)) x
   | forall e. (Typeable e, Exception e)
-      => OnErrorI (e -> st -> IO RestartDirective)  x
+      => OnErrorI (e -> ActorM st RestartDirective)  x
   | HandlerDescI String x
   | SetForkerI (IO () -> IO ThreadId) x
   | AppendEventBusDecoratorI EventBusDecorator x
@@ -64,11 +65,8 @@ startDelay delay = liftF $ SetStartDelayI delay ()
 -- >>> let actorDef = defActor $ preStart (return $ InitOk 0)
 -- >>> _actorPreStart actorDef
 -- InitOk 0
-preStart :: IO (InitResult st) -> ActorBuilder st ()
-preStart action = liftF $ PreStartI (const action) ()
-
-preStart1 :: (EventBus -> IO (InitResult st)) -> ActorBuilder st ()
-preStart1 action = liftF $ PreStartI action ()
+preStart :: PreActorM (InitResult st) -> ActorBuilder st ()
+preStart action = liftF $ PreStartI action ()
 
 -- |
 -- Example:
@@ -78,7 +76,7 @@ preStart1 action = liftF $ PreStartI action ()
 -- >>> _actorPostStop actorDef
 -- >>> takeMVar result
 -- "STOPPED"
-postStop :: (st -> IO ()) -> ActorBuilder st ()
+postStop :: (ActorM st ()) -> ActorBuilder st ()
 postStop action = liftF $ PostStopI action ()
 
 -- |
@@ -89,7 +87,9 @@ postStop action = liftF $ PostStopI action ()
 -- >>> _actorPreRestart actorDef 777 err
 -- >>> takeMVar result
 -- 777
-preRestart :: (st -> SomeException -> GenericEvent -> IO ()) -> ActorBuilder st ()
+preRestart
+  :: (SomeException -> GenericEvent -> ActorM st ())
+  -> ActorBuilder st ()
 preRestart action = liftF $ PreRestartI action ()
 
 -- |
@@ -100,12 +100,15 @@ preRestart action = liftF $ PreRestartI action ()
 -- >>> _actorPostRestart actorDef 777 err
 -- >>> takeMVar result
 -- 777
-postRestart :: (st -> SomeException -> GenericEvent -> IO (InitResult st))
-            -> ActorBuilder st ()
+postRestart
+  :: (SomeException -> GenericEvent -> ActorM st (InitResult st))
+  -> ActorBuilder st ()
 postRestart action = liftF $ PostRestartI action ()
 
-onError :: (Typeable e, Exception e)
-        => (e -> st -> IO RestartDirective) -> ActorBuilder st ()
+onError
+  :: (Typeable e, Exception e)
+  => (e -> ActorM st RestartDirective)
+  -> ActorBuilder st ()
 onError action = liftF $ OnErrorI action ()
 
 useBoundThread :: Bool -> ActorBuilder st ()
@@ -131,12 +134,12 @@ defActor build = eval emptyActorDef build
           _actorChildKey = Nothing
         , _actorForker = forkIO
         , _actorPreStart = error "preStart needs to be defined"
-        , _actorPostStop = const $ return ()
-        , _actorPreRestart = \_ _ _ -> return ()
-        , _actorPostRestart = \st _ _ -> return $ InitOk st
+        , _actorPostStop = return ()
+        , _actorPreRestart = \_ _ -> return ()
+        , _actorPostRestart = \_ _ -> getState >>= return . InitOk
         , _actorRestartDirective =
          HashMap.singleton "SomeException"
-                            (ErrorHandler $ \(e :: SomeException) _ -> return Restart)
+                            (ErrorHandler $ \(_ :: SomeException) -> return Restart)
         , _actorReceive = HashMap.empty
         , _actorRestartAttempt = 0
         , _actorDelayAfterStart = seconds 0
@@ -150,17 +153,17 @@ defActor build = eval emptyActorDef build
     eval actorDef (Free (SetStartDelayI delay next)) =
       eval (actorDef { _actorDelayAfterStart = delay }) next
 
-    eval actorDef (Free (PreStartI preStart next)) =
-      eval (actorDef {_actorPreStart = preStart}) next
+    eval actorDef (Free (PreStartI preStart_ next)) =
+      eval (actorDef {_actorPreStart = preStart_}) next
 
-    eval actorDef (Free (PostStopI postStop next)) =
-      eval (actorDef {_actorPostStop = postStop}) next
+    eval actorDef (Free (PostStopI postStop_ next)) =
+      eval (actorDef {_actorPostStop = postStop_}) next
 
-    eval actorDef (Free (PreRestartI preRestart next)) =
-      eval (actorDef { _actorPreRestart = preRestart}) next
+    eval actorDef (Free (PreRestartI preRestart_ next)) =
+      eval (actorDef { _actorPreRestart = preRestart_}) next
 
-    eval actorDef (Free (PostRestartI postRestart next)) =
-      eval (actorDef { _actorPostRestart = postRestart}) next
+    eval actorDef (Free (PostRestartI postRestart_ next)) =
+      eval (actorDef { _actorPostRestart = postRestart_}) next
 
     eval actorDef (Free (SetForkerI forker next)) =
       eval (actorDef { _actorForker = forker }) next
@@ -169,11 +172,16 @@ defActor build = eval emptyActorDef build
       let currentDecorator = _actorEventBusDecorator actorDef
       in eval (actorDef { _actorEventBusDecorator = decorator . currentDecorator }) next
 
-    eval actorDef (Free (OnErrorI onError next)) =
-      eval (addErrorHandler actorDef (ErrorHandler onError)) next
+    eval actorDef (Free (OnErrorI onError_ next)) =
+      eval (addErrorHandler actorDef (ErrorHandler onError_)) next
 
     eval actorDef (Free (HandlerDescI str (Free (HandlerI handler next)))) =
       eval (addReceiveHandler actorDef (EventHandler str handler)) next
+
+    eval _actorDef (Free (HandlerDescI str _)) =
+      error $ "FATAL: ActorBuilder#desc can only be used " ++
+              "before a receive handler\n(context: " ++
+              str ++ ")"
 
     eval actorDef (Free (HandlerI handler next)) =
       eval (addReceiveHandler actorDef (EventHandler "" handler)) next

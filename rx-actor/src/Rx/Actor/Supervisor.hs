@@ -1,28 +1,29 @@
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 module Rx.Actor.Supervisor where
 
-import Control.Concurrent (myThreadId, yield)
+import Control.Concurrent (yield)
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
-import Control.Concurrent.STM ( TChan, TVar, atomically
+import Control.Concurrent.STM ( atomically
                               , newTVarIO, readTVar, modifyTVar
                               , newTChanIO, readTChan, writeTChan  )
-import Control.Concurrent.Async (Async, async, cancel, link2, wait)
+import Control.Concurrent.Async (async, cancel, link2, wait)
 
 import Control.Exception (throwIO)
 
-import Control.Monad (void, when, forever, forM_)
-import Control.Monad.Free
+import Control.Monad (when, forM_)
 
 import Data.Typeable (Typeable)
-import Data.HashMap.Strict (HashMap)
 
 import qualified Data.HashMap.Strict as HashMap
 
-import Rx.Subject (Subject, newPublishSubject)
+import Rx.Subject (newPublishSubject)
 import Rx.Observable (safeSubscribe, toAsyncObservable, onNext)
 import Rx.Disposable ( createDisposable, dispose
                      , newSingleAssignmentDisposable, toDisposable )
 import qualified Rx.Disposable as Disposable
+
+import Rx.Logger (Logger, newLogger, noisy, noisyF, Only(..))
 
 import Rx.Actor.EventBus (toGenericEvent)
 import Rx.Actor.Actor
@@ -31,7 +32,18 @@ import Rx.Actor.Types
 --------------------------------------------------------------------------------
 
 startSupervisorWithEventBus :: EventBus -> SupervisorDef -> IO Supervisor
-startSupervisorWithEventBus evBus supDef = _createSupervisor evBus supDef
+startSupervisorWithEventBus evBus supDef = do
+  logger <- newLogger
+  _createSupervisor evBus logger supDef
+
+startSupervisorWithEventBusAndLogger ::
+  EventBus -> Logger -> SupervisorDef -> IO Supervisor
+startSupervisorWithEventBusAndLogger = _createSupervisor
+
+startSupervisorWithLogger :: Logger -> SupervisorDef -> IO Supervisor
+startSupervisorWithLogger logger supDef = do
+  evBus <- newPublishSubject
+  _createSupervisor evBus logger supDef
 
 startSupervisor :: SupervisorDef -> IO Supervisor
 startSupervisor supDef = do
@@ -62,8 +74,8 @@ disposeChildren = onChildren dispose
 joinSupervisorThread :: Supervisor -> IO ()
 joinSupervisorThread = wait . _supervisorAsync
 
-_createSupervisor :: EventBus -> SupervisorDef -> IO Supervisor
-_createSupervisor evBus supDef@(SupervisorDef {..}) = do
+_createSupervisor :: EventBus -> Logger -> SupervisorDef -> IO Supervisor
+_createSupervisor evBus logger supDef@(SupervisorDef {..}) = do
     ctrlQueue <- newTChanIO
     actorMapVar <- newTVarIO HashMap.empty
     main ctrlQueue actorMapVar
@@ -77,8 +89,9 @@ _createSupervisor evBus supDef@(SupervisorDef {..}) = do
                 _supervisorDef = supDef
               , _supervisorAsync = supAsync
               , _supervisorEventBus = evBus
-              , _supervisorDisposable = toDisposable $ supDisposable
+              , _supervisorDisposable = toDisposable supDisposable
               , _supervisorChildren = actorMapVar
+              , _supervisorLogger = logger
               , _sendToSupervisor = supSend
               }
 
@@ -105,7 +118,7 @@ _createSupervisor evBus supDef@(SupervisorDef {..}) = do
           mapM_ (supAddActor sup) _supervisorDefChildren
 
         emitEventToChildren gev = do
-          actors <- HashMap.elems `fmap` (atomically $ readTVar actorMapVar)
+          actors <- HashMap.elems `fmap` atomically (readTVar actorMapVar)
           mapM_ (flip _sendToActor gev) actors
 
         supLoop sup = do
@@ -117,14 +130,14 @@ _createSupervisor evBus supDef@(SupervisorDef {..}) = do
             (ActorFailedWithError prevSt failedEv err actor directive) ->
               supRestartActor sup prevSt failedEv err actor directive
           yield
-          logMsg "Supervisor: loop"
+          noisy ("Supervisor: loop" :: String) logger
           supLoop sup
 
         supSend = atomically . writeTChan ctrlQueue
 
         supAddActor sup gActorDef = do
           let actorKey = getActorKey gActorDef
-          logMsg $ "Supervisor: Starting new actor " ++ actorKey
+          noisyF "Supervisor: Starting new actor {}" (Only actorKey) logger
           supStartActor sup gActorDef $ NewActor gActorDef
 
         supRemoveActor gActorDef = do
@@ -133,13 +146,14 @@ _createSupervisor evBus supDef@(SupervisorDef {..}) = do
             actorMap <- readTVar actorMapVar
             case HashMap.lookup actorKey actorMap of
               Nothing -> return False
-              Just actor -> do
+              Just _ -> do
                 modifyTVar actorMapVar $ HashMap.delete actorKey
                 return True
-          when wasRemoved (logMsg $ "Supervisor: Removing actor " ++ actorKey)
+          when wasRemoved $
+            noisyF "Supervisor: Removing actor {}" (Only actorKey) logger
 
         supFail sup err _ = do
-          logMsg $ "Supervisor: Failing with error '" ++ show err ++ "'"
+          noisyF "Supervisor: Failing with error '{}'" (Only $ show err) logger
           disposeChildren sup
           throwIO err
 
@@ -153,7 +167,8 @@ _createSupervisor evBus supDef@(SupervisorDef {..}) = do
         supRestartActor sup prevSt failedEv err actor directive =
           case directive of
             Raise -> do
-              logMsg $ "Supervisor: raise error from actor"
+              noisy ("Supervisor: raise error from actor" :: String)
+                    logger
               supFail sup err actor
             RestartOne ->
               supRestartSingleActor actor sup prevSt failedEv err
@@ -163,6 +178,9 @@ _createSupervisor evBus supDef@(SupervisorDef {..}) = do
                       OneForOne -> supRestartSingleActor
                       AllForOne -> supRestartAllActors
               in restarter actor sup prevSt failedEv err
+            _ ->
+              error $ "FATAL: Restart Actor procedure received " ++
+                      "an unexpected directive " ++ show directive
 
         supRestartSingleActor actor sup prevSt failedEv err = do
           let gActorDef      = _actorDef actor
@@ -171,10 +189,12 @@ _createSupervisor evBus supDef@(SupervisorDef {..}) = do
 
           gActorDef1 <- incRestartAttempt gActorDef
           supRemoveActor gActorDef
-          logMsg $ "Supervisor: Restarting actor " ++ getActorKey gActorDef  ++
-                   " with delay " ++ show backoffDelay
+          noisyF "Supervisor: Restarting actor {} with delay {}"
+                 (getActorKey gActorDef, show backoffDelay)
+                 logger
+
           supStartActor sup gActorDef
-            $ RestartActor {
+            RestartActor {
               _spawnPrevState    = prevSt
             , _spawnQueue        = _actorQueue actor
             , _spawnCtrlQueue    = _actorCtrlQueue actor
@@ -195,10 +215,6 @@ _createSupervisor evBus supDef@(SupervisorDef {..}) = do
               -- Actor will send back a message to supervisor to restart itself
               _sendCtrlToActor actor (RestartActorEvent err failedEv)
 
-
-        logMsg msg = do
-          tid <- myThreadId
-          putStrLn $ "[" ++ show tid ++ "] " ++ msg
 
 emitEventToSupervisor :: (Typeable t) => Supervisor -> t -> IO ()
 emitEventToSupervisor sup ev =

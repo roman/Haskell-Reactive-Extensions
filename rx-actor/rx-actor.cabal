@@ -42,6 +42,7 @@ library
     tiempo,
     rx-disposable,
     rx-schedulers,
+    rx-logger,
     rxhs
   hs-source-dirs:      src
   default-language:    Haskell2010

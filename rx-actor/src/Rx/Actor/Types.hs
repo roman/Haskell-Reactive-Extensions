@@ -1,3 +1,4 @@
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE ExistentialQuantification #-}
@@ -11,20 +12,29 @@ import Control.Exception (Exception, SomeException)
 
 import Control.Applicative (Applicative, (<$>), (<*>))
 import Control.Monad.Trans (MonadIO(..))
+import Control.Monad.Reader (ReaderT)
 import Control.Monad.State.Strict (StateT)
 
+import qualified Control.Monad.Reader as Reader
 import qualified Control.Monad.State.Strict as State
 
-import Data.Typeable (Typeable, cast)
+import Data.Monoid (mappend)
+import Data.Typeable (Typeable)
 import Data.HashMap.Strict (HashMap)
 import Data.Maybe (fromMaybe)
+import qualified Data.Text.Lazy as LText
 
 import Tiempo (TimeInterval)
 
 import Rx.Disposable ( Disposable, IDisposable, ToDisposable
                      , dispose )
+
+import Rx.Logger (Logger, HasLogger(..), ToLogMsg(..))
+import Rx.Logger.Monad (MonadLog(..))
+import qualified Rx.Logger as Logger
+
 import Rx.Subject (Subject)
-import Rx.Observable (IObserver(..), Observable, Sync)
+import Rx.Observable (Observable, Sync)
 
 import qualified Rx.Disposable as Disposable
 
@@ -46,10 +56,53 @@ data ActorEvent
   | StopActorEvent
   deriving (Typeable)
 
+data ActorLogMsg =
+  forall payload . ToLogMsg payload =>
+  ActorLogMsg { _actorLogMsgActorKey :: !ActorKeyVal
+              , _actorLogMsgPayload  :: !payload }
+  deriving (Typeable)
+
+deriving instance Show ActorLogMsg
+
+instance ToLogMsg ActorLogMsg where
+  toLogMsg (ActorLogMsg actorKey payload0) =
+    let payload = toLogMsg payload0
+        sep = case LText.head payload of
+                '[' -> ""
+                ' ' -> ""
+                _ -> " "
+    in mappend (toLogMsg $ "[actorKey: " ++ actorKey ++ "]" ++ sep)
+               payload
 
 newtype ActorM st a
-  = ActorM { fromActorM :: StateT (st, EventBus) IO a }
+  = ActorM { fromActorM :: StateT (st, EventBus, Actor) IO a }
   deriving (Functor, Applicative, Monad, MonadIO, Typeable)
+
+instance MonadLog (ActorM st) where
+  logMsg level msg0 = ActorM $ do
+    (_, _, actor) <- State.get
+    let msg = ActorLogMsg (getActorKey actor) msg0
+    State.lift $ Logger.logMsg level msg actor
+
+newtype PreActorM a
+   = PreActorM { fromPreActorM :: ReaderT (ActorKeyVal, EventBus, Logger) IO a }
+   deriving (Functor, Applicative, Monad, MonadIO, Typeable)
+
+instance MonadLog PreActorM where
+  logMsg level msg0 = PreActorM $ do
+    (actorKey, _, logger) <- Reader.ask
+    let msg = ActorLogMsg actorKey msg0
+    Reader.lift $ Logger.logMsg level msg logger
+
+class GetEventBus m where
+  getEventBus :: m EventBus
+
+instance GetEventBus (ActorM st) where
+  getEventBus = ActorM $ State.get >>= \(_, evBus, _) -> return evBus
+
+instance GetEventBus PreActorM where
+  getEventBus = PreActorM $ Reader.ask >>= \(_, evBus, _) -> return evBus
+
 
 type ActorKeyVal = String
 type ActorKey = Maybe ActorKeyVal
@@ -71,7 +124,8 @@ data EventHandler st
   = forall t . Typeable t => EventHandler String (t -> ActorM st ())
 
 data ErrorHandler st
-  = forall e . (Typeable e, Exception e) => ErrorHandler (e -> st -> IO RestartDirective)
+  = forall e . (Typeable e, Exception e)
+    => ErrorHandler (e -> ActorM st RestartDirective)
 
 class IActor actor where
   getActorKey :: actor -> String
@@ -80,11 +134,12 @@ data ActorDef st
   = ActorDef {
     _actorChildKey          :: !ActorKey
   , _actorForker            :: !(IO () -> IO ThreadId)
-  , _actorPreStart          :: EventBus -> IO (InitResult st)
-  , _actorPostStop          :: !(st -> IO ())
-  , _actorPreRestart        :: !(st -> SomeException -> GenericEvent -> IO ())
+  , _actorPreStart          :: PreActorM (InitResult st)
+  , _actorPostStop          :: !(ActorM st ())
+  , _actorPreRestart
+      :: !(SomeException -> GenericEvent -> ActorM st ())
   , _actorPostRestart
-      :: !(st -> SomeException -> GenericEvent -> IO (InitResult st))
+      :: !(SomeException -> GenericEvent -> ActorM st (InitResult st))
   , _actorRestartDirective  :: !(HashMap String (ErrorHandler st))
   , _actorDelayAfterStart   :: !TimeInterval
   , _actorReceive           :: !(HashMap String (EventHandler st))
@@ -110,11 +165,15 @@ data Actor
   , _actorCleanup          :: !Disposable
   , _actorDef              :: !GenericActorDef
   , _actorEventBus         :: !EventBus
+  , _actorLogger           :: !Logger
   }
   deriving (Typeable)
 
 instance IActor Actor where
   getActorKey = getActorKey . _actorDef
+
+instance HasLogger Actor where
+  getLogger = _actorLogger
 
 instance ToDisposable Actor where
   toDisposable = Disposable.toDisposable . _actorCleanup
@@ -196,9 +255,13 @@ data Supervisor
   , _supervisorEventBus   :: !EventBus
   , _supervisorDisposable :: !Disposable
   , _supervisorChildren   :: !(TVar (HashMap ActorKeyVal Actor))
+  , _supervisorLogger     :: !Logger
   , _sendToSupervisor     :: !(SupervisionEvent -> IO ())
   }
   deriving (Typeable)
+
+instance HasLogger Supervisor where
+  getLogger = _supervisorLogger
 
 instance IDisposable Supervisor where
   dispose = dispose . _supervisorDisposable
