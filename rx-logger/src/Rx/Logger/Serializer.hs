@@ -19,14 +19,14 @@ import System.IO (BufferMode (LineBuffering), Handle, IOMode (AppendMode),
 
 import Rx.Logger.Types
 
-serializeToHandle :: (HasLogger logger)
+serializeToHandle :: (ToLogger logger)
                   => Handle
                   -> LogEntryFormatter
                   -> logger
                   -> IO Disposable
 serializeToHandle handle entryF source = do
   hSetBuffering handle LineBuffering
-  Observable.safeSubscribe (toAsyncObservable (getLogger source))
+  Observable.safeSubscribe (toAsyncObservable (toLogger source))
     (\output -> do
       isOpen <- hIsOpen handle
       when isOpen $
@@ -34,7 +34,7 @@ serializeToHandle handle entryF source = do
     (\err -> throw err)
     (return ())
 
-serializeToFile :: (HasLogger logger)
+serializeToFile :: (ToLogger logger)
                 => FilePath
                 -> LogEntryFormatter
                 -> logger
@@ -43,7 +43,7 @@ serializeToFile filepath entryF source = do
   allDisposables <- newCompositeDisposable
   handle <- openFile filepath AppendMode
   hSetBuffering handle LineBuffering
-  loggerSub <- Observable.safeSubscribe (toAsyncObservable (getLogger source))
+  loggerSub <- Observable.safeSubscribe (toAsyncObservable (toLogger source))
     (\output -> do
       isOpen <- hIsOpen handle
       when isOpen $

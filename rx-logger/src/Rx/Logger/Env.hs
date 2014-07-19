@@ -29,7 +29,7 @@ defaultSettings =
   Settings { envPrefix = "LOGGER"
            , envLogEntryFormatter = ttccFormat }
 
-setupTracer :: (HasLogger logger)
+setupTracer :: (ToLogger logger)
              => Settings
              -> logger
              -> IO Disposable

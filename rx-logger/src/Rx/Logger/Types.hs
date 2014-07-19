@@ -31,28 +31,12 @@ import Rx.Subject (Subject)
 
 --------------------------------------------------------------------------------
 
-class (Show a, Typeable a) => ToLogMsg a where
-  toLogMsg :: a -> LText.Text
-  toLogMsg = LText.pack . show
+type Logger = Subject LogEntry
+type LogEntryFormatter = LogEntry -> LText.Text
 
 data LogMsg
   = forall a. ToLogMsg a => LogMsg a
   deriving (Typeable)
-
-instance ToLogMsg LText.Text where
-  toLogMsg = id
-
-instance ToLogMsg Text.Text where
-  toLogMsg = LText.fromChunks . (:[])
-
-instance ToLogMsg String where
-  toLogMsg = LText.pack
-
-instance ToLogMsg LogMsg where
-  toLogMsg (LogMsg a) = toLogMsg a
-
-instance Show LogMsg where
-  show (LogMsg a) = show a
 
 data LogEntry
   = LogEntry {
@@ -63,18 +47,14 @@ data LogEntry
   }
   deriving (Show, Typeable, Generic)
 
-type Logger = Subject LogEntry
-type LogEntryFormatter = LogEntry -> LText.Text
-
---------------------------------------------------------------------------------
-
 data LogLevel
-  = TRACE    -- ^ Indicates normal tracing information.
+  = TRACE   -- ^ Indicates normal tracing information.
 
-  | LOUD   -- ^ Indicates a fairly detailed tracing message. By
+  | LOUD    -- ^ Indicates a fairly detailed tracing message. By
             -- default logging calls for entering, returning, or
             -- throwing an exception are traced at this level
-  | NOISY  -- ^ Indicates a highly detailed tracing message
+
+  | NOISY   -- ^ Indicates a highly detailed tracing message
 
   | CONFIG  -- ^ Intended to provide a variety of static configuration
             -- information, to assist in debugging problems that may be
@@ -97,11 +77,34 @@ data LogLevel
   deriving (Show, Eq, Ord, Enum, Generic, Typeable)
 
 --------------------------------------------------------------------------------
+-- * class definitions
 
-class HasLogger a where
-  getLogger :: a -> Logger
+class (Show a, Typeable a) => ToLogMsg a where
+  toLogMsg :: a -> LText.Text
+  toLogMsg = LText.pack . show
 
-instance HasLogger (Subject LogEntry) where
-  getLogger = id
+class ToLogger a where
+  toLogger :: a -> Logger
+
+--------------------------------------------------------------------------------
+-- * instances
+
+instance ToLogger (Subject LogEntry) where
+  toLogger = id
+
+instance ToLogMsg LText.Text where
+  toLogMsg = id
+
+instance ToLogMsg Text.Text where
+  toLogMsg = LText.fromChunks . (:[])
+
+instance ToLogMsg String where
+  toLogMsg = LText.pack
+
+instance ToLogMsg LogMsg where
+  toLogMsg (LogMsg a) = toLogMsg a
+
+instance Show LogMsg where
+  show (LogMsg a) = show a
 
 --------------------------------------------------------------------------------

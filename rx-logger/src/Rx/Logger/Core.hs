@@ -18,67 +18,67 @@ newLogger :: IO Logger
 newLogger = newPublishSubject
 
 
-logMsg :: (HasLogger logger, ToLogMsg msg)
+logMsg :: (ToLogger logger, ToLogMsg msg)
        => LogLevel
        -> msg
        -> logger
        -> IO ()
 logMsg level msg logger0 = do
-  let logger = getLogger logger0
+  let logger = toLogger logger0
   time   <- getCurrentTime
   tid    <- myThreadId
   onNext logger $! LogEntry time (LogMsg msg) level tid
 
-trace :: (HasLogger logger, ToLogMsg msg) => msg -> logger -> IO ()
+trace :: (ToLogger logger, ToLogMsg msg) => msg -> logger -> IO ()
 trace = logMsg TRACE
 
-loud :: (HasLogger logger, ToLogMsg msg) => msg -> logger -> IO ()
+loud :: (ToLogger logger, ToLogMsg msg) => msg -> logger -> IO ()
 loud = logMsg LOUD
 
-noisy :: (HasLogger logger, ToLogMsg msg) => msg -> logger -> IO ()
+noisy :: (ToLogger logger, ToLogMsg msg) => msg -> logger -> IO ()
 noisy = logMsg NOISY
 
-config :: (HasLogger logger, ToLogMsg msg) => msg -> logger -> IO ()
+config :: (ToLogger logger, ToLogMsg msg) => msg -> logger -> IO ()
 config = logMsg CONFIG
 
-info :: (HasLogger logger, ToLogMsg msg) => msg -> logger -> IO ()
+info :: (ToLogger logger, ToLogMsg msg) => msg -> logger -> IO ()
 info = logMsg INFO
 
-warn :: (HasLogger logger, ToLogMsg msg) => msg -> logger -> IO ()
+warn :: (ToLogger logger, ToLogMsg msg) => msg -> logger -> IO ()
 warn = logMsg WARNING
 
-severe :: (HasLogger logger, ToLogMsg msg) => msg -> logger -> IO ()
+severe :: (ToLogger logger, ToLogMsg msg) => msg -> logger -> IO ()
 severe = logMsg SEVERE
 
 logF ::
-  (HasLogger logger, Params params)
+  (ToLogger logger, Params params)
   => LogLevel -> Format -> params -> logger -> IO ()
 logF level txtFormat params = logMsg level (format txtFormat params)
 
 traceF ::
-  (HasLogger logger, Params params) => Format -> params -> logger -> IO ()
+  (ToLogger logger, Params params) => Format -> params -> logger -> IO ()
 traceF = logF TRACE
 
 loudF ::
-  (HasLogger logger, Params params) => Format -> params -> logger -> IO ()
+  (ToLogger logger, Params params) => Format -> params -> logger -> IO ()
 loudF = logF LOUD
 
 noisyF ::
-  (HasLogger logger, Params params) => Format -> params -> logger -> IO ()
+  (ToLogger logger, Params params) => Format -> params -> logger -> IO ()
 noisyF = logF NOISY
 
 configF ::
-  (HasLogger logger, Params params) => Format -> params -> logger -> IO ()
+  (ToLogger logger, Params params) => Format -> params -> logger -> IO ()
 configF = logF CONFIG
 
 infoF ::
-  (HasLogger logger, Params params) => Format -> params -> logger -> IO ()
+  (ToLogger logger, Params params) => Format -> params -> logger -> IO ()
 infoF = logF INFO
 
 warnF ::
-  (HasLogger logger, Params params) => Format -> params -> logger -> IO ()
+  (ToLogger logger, Params params) => Format -> params -> logger -> IO ()
 warnF = logF WARNING
 
 severeF ::
-  (HasLogger logger, Params params) => Format -> params -> logger -> IO ()
+  (ToLogger logger, Params params) => Format -> params -> logger -> IO ()
 severeF = logF SEVERE

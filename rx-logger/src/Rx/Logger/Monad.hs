@@ -49,12 +49,12 @@ instance (MonadIO m) => MonadLog (LogT m) where
     logger <- ask
     liftIO $ Core.logMsg level msg logger
 
-withLogger :: (HasLogger logger, MonadIO m)
+withLogger :: (ToLogger logger, MonadIO m)
       => logger
       -> LogT m result
       -> m result
 withLogger logger (LogT action) =
-  runReaderT action $ getLogger logger
+  runReaderT action $ toLogger logger
 
 --------------------------------------------------------------------------------
 

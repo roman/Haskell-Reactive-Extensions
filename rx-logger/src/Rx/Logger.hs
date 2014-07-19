@@ -26,7 +26,7 @@ module Rx.Logger
        , LogLevel(..)
        , LogEntry(..)
        , LogMsg (..)
-       , HasLogger(..)
+       , ToLogger(..)
        , Only(..)
        ) where
 
