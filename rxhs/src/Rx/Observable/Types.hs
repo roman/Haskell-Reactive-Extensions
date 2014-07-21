@@ -3,6 +3,7 @@ module Rx.Observable.Types where
 
 import Data.Typeable (Typeable)
 
+import Control.Exception (Exception(..))
 import Control.Monad (forever)
 
 import Control.Exception   (AsyncException (ThreadKilled), Handler (..),
@@ -52,14 +53,28 @@ data Notification v
   | OnCompleted
   deriving (Show, Typeable)
 
---------------------------------------------------------------------------------
-
 data Subject v =
   Subject {
     _subjectOnSubscribe        :: Observer v -> IO Disposable
   , _subjectOnEmitNotification :: Notification v -> IO ()
   }
   deriving (Typeable)
+
+newtype Observer v
+  = Observer (Notification v -> IO ())
+  deriving (Typeable)
+
+
+newtype Observable s a =
+  Observable { _onSubscribe :: Observer a -> IO Disposable }
+
+data TimeoutError
+  = TimeoutError
+  deriving (Show, Typeable)
+
+instance Exception TimeoutError
+
+--------------------------------------------------------------------------------
 
 instance ToObserver Subject where
   toObserver subject = Observer (_subjectOnEmitNotification subject)
@@ -70,27 +85,14 @@ instance ToAsyncObservable Subject where
 instance IObserver Subject where
   emitNotification = _subjectOnEmitNotification
 
---------------------------------------------------------------------------------
-
-newtype Observer v
-  = Observer (Notification v -> IO ())
-  deriving (Typeable)
-
 instance ToObserver Observer where
   toObserver = id
 
 instance IObserver Observer where
   emitNotification (Observer f) = f
 
---------------------------------------------------------------------------------
-
-newtype Observable s a =
-  Observable { _onSubscribe :: Observer a -> IO Disposable }
-
 instance IObservable Observable where
   onSubscribe = _onSubscribe
-
---------------------------------------------------------------------------------
 
 instance ToAsyncObservable TChan where
   toAsyncObservable chan = Observable $ \observer ->

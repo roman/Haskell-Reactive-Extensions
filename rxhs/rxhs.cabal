@@ -22,16 +22,23 @@ library
   other-modules:
     Rx.Notification,
     Rx.Observable.Types,
+    Rx.Observable.Distinct,
+    Rx.Observable.Do,
+    Rx.Observable.Error,
     Rx.Observable.Filter,
+    Rx.Observable.First,
     Rx.Observable.Fold,
+    Rx.Observable.Interval,
+    Rx.Observable.List,
     Rx.Observable.Map,
+    Rx.Observable.Maybe,
     Rx.Observable.Merge,
     Rx.Observable.Repeat,
     Rx.Observable.Scan,
     Rx.Observable.Scheduler,
     Rx.Observable.Take,
-    Rx.Observable.Timer,
     Rx.Observable.Timeout,
+    Rx.Subject.SingleSubject,
     Rx.Subject.PublishSubject
 
   -- other-extensions:

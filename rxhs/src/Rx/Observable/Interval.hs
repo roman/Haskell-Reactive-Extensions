@@ -1,5 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
-module Rx.Observable.Timer where
+module Rx.Observable.Interval where
 
 import Rx.Observable.Types
 import Rx.Scheduler        (Async, IScheduler, newThread,
@@ -7,12 +7,12 @@ import Rx.Scheduler        (Async, IScheduler, newThread,
 import Tiempo              (TimeInterval)
 
 
-timer' :: IScheduler scheduler
+interval' :: IScheduler scheduler
        => scheduler Async -> TimeInterval -> Observable Async Int
-timer' scheduler !interval = Observable $ \observer -> do
+interval' scheduler !interval = Observable $ \observer -> do
   scheduleTimedRecursiveState scheduler interval (0 :: Int) $ \count -> do
     onNext observer count
     return $ Just (succ count, interval)
 
-timer :: TimeInterval -> Observable Async Int
-timer = timer' newThread
+interval :: TimeInterval -> Observable Async Int
+interval = interval' newThread

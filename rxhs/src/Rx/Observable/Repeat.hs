@@ -9,7 +9,6 @@ import Tiempo (TimeInterval)
 
 import Rx.Scheduler (IScheduler, Sync, currentThread, scheduleTimedRecursive)
 
-import Rx.Observable.Timer (timer')
 import Rx.Observable.Types
 
 

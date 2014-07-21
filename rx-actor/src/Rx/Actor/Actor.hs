@@ -21,7 +21,7 @@ import Tiempo.Concurrent (threadDelay)
 
 import Unsafe.Coerce (unsafeCoerce)
 
-import Rx.Observable ( safeSubscribe, scanLeftWithItem )
+import Rx.Observable ( safeSubscribe, scanLeftWithItemM )
 import Rx.Disposable ( emptyDisposable, createDisposable
                      , newCompositeDisposable, newSingleAssignmentDisposable
                      , toDisposable )
@@ -134,7 +134,7 @@ _spawnActor (Supervisor {..}) spawn = do
         ---
 
         actorObservable actor st =
-          scanLeftWithItem (actorLoop actor) st $
+          scanLeftWithItemM (actorLoop actor) st $
           _actorEventBusDecorator actorDef $
           Observable.repeat getEventFromQueue
 

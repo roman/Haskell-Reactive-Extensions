@@ -3,12 +3,12 @@ module Rx.Observable.Scan where
 import Control.Concurrent.STM (atomically, newTVarIO, readTVar, writeTVar)
 import Rx.Observable.Types
 
-scanLeft :: IObservable observable
+scanLeftM :: IObservable observable
          => (acc -> a -> IO acc)
          -> acc
          -> observable s a
          -> Observable s acc
-scanLeft foldFn acc0 source =
+scanLeftM foldFn acc0 source =
   Observable $ \observer -> do
       accVar <- newTVarIO acc0
       main accVar observer
@@ -24,13 +24,13 @@ scanLeft foldFn acc0 source =
           onError_ = onError observer
           onCompleted_ = onCompleted observer
 
-scanLeftWithItem
+scanLeftWithItemM
   :: IObservable observable
   => (acc -> a -> IO acc)
   -> acc
   -> observable s a
   -> Observable s (acc, a)
-scanLeftWithItem foldFn acc0 source =
+scanLeftWithItemM foldFn acc0 source =
   Observable $ \observer -> do
       accVar <- newTVarIO acc0
       main accVar observer
