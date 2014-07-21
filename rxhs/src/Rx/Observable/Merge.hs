@@ -10,8 +10,10 @@ import qualified Data.Set as Set
 import Rx.Scheduler (Async)
 import Rx.Disposable ( newCompositeDisposable
                      , newSingleAssignmentDisposable
+                     , emptyDisposable
                      , dispose
                      , toDisposable )
+
 import qualified Rx.Disposable as Disposable
 import Rx.Observable.Types
 
@@ -75,3 +77,14 @@ merge obsSource = Observable $ \outerObserver -> do
              else do
                TVar.writeTVar dispSetVar dispSet'
                return False
+
+mergeList
+  :: (IObservable observable)
+  => [observable Async a]
+  -> Observable Async a
+mergeList sourceList = merge $ fromList sourceList
+  where
+    fromList xs =
+      Observable $ \observer -> do
+        mapM_ (onNext observer) xs
+        emptyDisposable

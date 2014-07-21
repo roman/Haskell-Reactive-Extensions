@@ -1,5 +1,8 @@
+{-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Rx.Disposable.Types where
+
+import Data.Typeable (Typeable)
 
 import Control.Concurrent.STM (TVar)
 
@@ -22,6 +25,7 @@ data Disposable
     _isDisposed    :: TVar Bool
   , _subscriptions :: TVar [Disposable]
   }
+  deriving (Typeable)
 
 instance ToDisposable Disposable where
   toDisposable = id
@@ -29,12 +33,12 @@ instance ToDisposable Disposable where
 
 newtype BooleanDisposable
   = BS Disposable
-  deriving (ToDisposable)
+  deriving (ToDisposable, Typeable)
 
 newtype SingleAssignmentDisposable
   = SAS Disposable
-  deriving (ToDisposable)
+  deriving (ToDisposable, Typeable)
 
 newtype CompositeDisposable
   = CS Disposable
-  deriving (ToDisposable)
+  deriving (ToDisposable, Typeable)

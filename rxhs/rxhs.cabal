@@ -17,19 +17,37 @@ cabal-version:       >=1.10
 
 library
   exposed-modules:
-    Rx.Observable
+    Rx.Observable,
+    Rx.Subject
   other-modules:
+    Rx.Notification,
     Rx.Observable.Types,
+    Rx.Observable.Distinct,
+    Rx.Observable.Do,
+    Rx.Observable.Error,
     Rx.Observable.Filter,
+    Rx.Observable.First,
+    Rx.Observable.Fold,
+    Rx.Observable.Interval,
+    Rx.Observable.List,
     Rx.Observable.Map,
+    Rx.Observable.Maybe,
     Rx.Observable.Merge,
+    Rx.Observable.Repeat,
+    Rx.Observable.Scan,
     Rx.Observable.Scheduler,
-    Rx.Observable.Timer
+    Rx.Observable.Take,
+    Rx.Observable.Timeout,
+    Rx.Subject.SingleSubject,
+    Rx.Subject.PublishSubject
+
   -- other-extensions:
   build-depends:
     base >=4.7 && <4.8,
     containers,
+    unordered-containers,
     stm,
+    time,
     tiempo,
 
     rx-disposable,

@@ -1,7 +1,8 @@
+{-# LANGUAGE RankNTypes #-}
 module Rx.Scheduler.SingleThread where
 
 import Control.Monad (join, forever)
-import Control.Concurrent (ThreadId, forkIO, forkOS, killThread, threadDelay)
+import Control.Concurrent (ThreadId, forkIO, forkOS, killThread, threadDelay, yield)
 import Control.Concurrent.STM (atomically)
 import qualified Control.Concurrent.STM.TChan as TChan
 import Tiempo (toMicroSeconds)
@@ -38,21 +39,26 @@ instance ToDisposable (SingleThreadScheduler s) where
 _singleThread :: Forker -> IO (SingleThreadScheduler Async)
 _singleThread fork = do
   reqChan <- TChan.newTChanIO
-  tid <- forkIO $ forever $ do
+  tid <- fork $ forever $ do
     join $ atomically $ TChan.readTChan reqChan
+    yield
   disposable <- createDisposable $ killThread tid
 
-  let scheduler = Scheduler {
+  let scheduler =
+        Scheduler {
           _immediateSchedule = \action -> do
-             atomically $ TChan.writeTChan reqChan action
-             emptyDisposable
+            atomically $ TChan.writeTChan reqChan action
+            emptyDisposable
+
         , _timedSchedule = \interval innerAction -> do
-             let action = threadDelay (toMicroSeconds interval) >> innerAction
-             atomically $ TChan.writeTChan reqChan action
-             emptyDisposable
+            let action = threadDelay (toMicroSeconds interval) >> innerAction
+            atomically $ TChan.writeTChan reqChan action
+            emptyDisposable
         }
 
   return $ SingleThreadScheduler scheduler disposable
+
+
 
 --------------------------------------------------------------------------------
 

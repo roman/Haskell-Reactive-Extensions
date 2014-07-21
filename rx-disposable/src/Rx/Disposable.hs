@@ -71,6 +71,8 @@ disposed is in the same order they were appended to the
 -}
 module Rx.Disposable
        ( IDisposable(..)
+       , IDisposableContainer (..)
+       , IDisposableWrapper (..)
        , ToDisposable(..)
        , Disposable
        , SingleAssignmentDisposable
