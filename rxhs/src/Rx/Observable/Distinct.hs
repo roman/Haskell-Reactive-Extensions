@@ -9,8 +9,8 @@ import Rx.Observable.Types
 -- `Observable` that are distinct.
 --
 --
-distinct :: (Eq a, Ord a)
-         => Observable s a
+distinct :: (IObservable source, Eq a, Ord a)
+         => source s a
          -> Observable s a
 distinct source =
   Observable $ \observer -> do
@@ -31,26 +31,24 @@ distinct source =
 -- according to a key selector function.
 --
 --
-distinctUntilChangedWith :: (Eq b)
+distinctUntilChangedWith :: (IObservable source, Eq b)
                          => (a -> b)
+                         -> source s a
                          -> Observable s a
-                         -> Observable s a
-distinctUntilChangedWith transfn source =
+distinctUntilChangedWith mapFn source =
     Observable $ \observer -> do
       priorValVar <- MVar.newEmptyMVar
       subscribe source
                    (\val -> do
-                     mpriorVal <- MVar.tryTakeMVar priorValVar
+                     mpriorVal <- MVar.tryReadMVar priorValVar
                      case mpriorVal of
                        Nothing -> do
                          MVar.putMVar priorValVar val
                          onNext observer val
                        Just priorVal
-                         | transfn priorVal == transfn val -> do
-                           MVar.putMVar priorValVar priorVal
-                           return ()
+                         | mapFn priorVal == mapFn val -> return ()
                          | otherwise -> do
-                           MVar.putMVar priorValVar val
+                           MVar.modifyMVar_ priorValVar (\_ -> return val)
                            onNext observer val)
                    (onError observer)
                    (onCompleted observer)
@@ -60,6 +58,6 @@ distinctUntilChangedWith transfn source =
 -- `Observable` that are distinct from their immediate predecessors.
 --
 --
-distinctUntilChanged :: (Eq a)
-                     => Observable s a -> Observable s a
+distinctUntilChanged :: (IObservable source, Eq a)
+                     => source s a -> Observable s a
 distinctUntilChanged = distinctUntilChangedWith id
