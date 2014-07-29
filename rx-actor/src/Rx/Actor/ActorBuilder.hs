@@ -15,6 +15,8 @@ import qualified Data.HashMap.Strict as HashMap
 import Rx.Actor.Util (getHandlerParamType1)
 import Rx.Actor.Types
 
+--------------------------------------------------------------------------------
+
 data ActorBuilderF st x
   = SetActorKeyI String x
   | SetStartDelayI TimeInterval x
@@ -126,7 +128,11 @@ receive handler = liftF $ HandlerI handler ()
 --------------------------------------------------------------------------------
 
 defActor :: ActorBuilder st () -> ActorDef st
-defActor build = eval emptyActorDef build
+defActor buildInstructions =
+    let result = eval emptyActorDef buildInstructions
+    in case _actorChildKey result of
+      Nothing -> error "FATAL: Actor must have an actor key"
+      Just _  -> result
   where
     emptyActorDef =
       ActorDef {
@@ -185,6 +191,8 @@ defActor build = eval emptyActorDef build
     eval actorDef (Free (HandlerI handler next)) =
       eval (addReceiveHandler actorDef (EventHandler "" handler)) next
 
+
+--------------------------------------------------------------------------------
 
 -- NOTE: Both addReceiveHandler and addErrorHandler have the same exact code
 -- by using Lenses we can make a polymorphic function that can receive the
