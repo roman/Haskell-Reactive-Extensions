@@ -51,7 +51,7 @@ runActorM st evBus actor (ActorM action) =
   State.runStateT action (st, evBus, actor)
 
 runPreActorM
-   :: ActorKeyVal -> EventBus -> Logger -> PreActorM a -> IO a
+   :: ActorKey -> EventBus -> Logger -> PreActorM a -> IO a
 runPreActorM actorKey evBus logger (PreActorM action) =
   Reader.runReaderT action (actorKey, evBus, logger)
 

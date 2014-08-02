@@ -7,11 +7,11 @@
 {-# LANGUAGE ExistentialQuantification #-}
 module Rx.Actor.Types where
 
-import Control.Concurrent (ThreadId)
 import Control.Concurrent.Async (Async)
 import Control.Concurrent.STM (TVar, TChan, newTChanIO)
 
 import Control.Exception (Exception, SomeException)
+import Control.Concurrent.STM (newTVarIO)
 
 import Control.Applicative (Applicative, (<$>), (<*>))
 import Control.Monad.Trans (MonadIO(..))
@@ -25,7 +25,9 @@ import Data.Monoid (mappend)
 import Data.Typeable (Typeable)
 import Data.HashMap.Strict (HashMap)
 import Data.Maybe (fromMaybe)
+
 import qualified Data.Text.Lazy as LText
+import qualified Data.HashMap.Strict as HashMap
 
 import Tiempo (TimeInterval)
 
@@ -56,17 +58,18 @@ class ToActorKey actor where
 --------------------------------------------------------------------------------
 -- * type definitions
 
-type ActorKey = Maybe ActorKeyVal
+type MActorKey = Maybe ActorKey
 type EventBus = Subject GenericEvent
-type ActorKeyVal = String
+type ActorKey = String
 type AttemptCount = Int
-type EventBusDecorator = Observable Sync ActorEvent -> Observable Sync ActorEvent
+type EventBusDecorator =
+  Observable Sync ActorEvent -> Observable Sync ActorEvent
 
 data GenericEvent = forall a . Typeable a => GenericEvent a
 
 data ActorLogMsg =
   forall payload . ToLogMsg payload =>
-  ActorLogMsg { _actorLogMsgActorKey :: !ActorKeyVal
+  ActorLogMsg { _actorLogMsgActorKey :: !ActorKey
               , _actorLogMsgPayload  :: !payload }
   deriving (Typeable)
 
@@ -90,75 +93,14 @@ data RestartDirective
   | RestartOne
   deriving (Show, Eq, Ord, Typeable)
 
-data ActorEvent
-  = NormalEvent GenericEvent
-  | RestartActorEvent !SomeException !GenericEvent
-  | StopActorEvent
+data ChildEvent
+  = ActorRestarted
+    { _ctrlEvError       :: !SomeException
+    , _ctlrEvFailedEvent :: !GenericEvent }
+  | ActorStopped
   deriving (Typeable)
 
---------------------
-
-newtype ActorM st a
-  = ActorM { fromActorM :: StateT (st, EventBus, Actor) IO a }
-  deriving (Functor, Applicative, Monad, MonadIO, Typeable)
-
-newtype PreActorM a
-   = PreActorM { fromPreActorM :: ReaderT (ActorKeyVal, EventBus, Logger) IO a }
-   deriving (Functor, Applicative, Monad, MonadIO, Typeable)
-
-newtype RO_ActorM st a
-  = RO_ActorM { fromRoActorM :: StateT (st, EventBus, Actor) IO a }
-  deriving (Functor, Applicative, Monad, MonadIO, Typeable)
-
---------------------
-
-data ActorDef st
-  = ActorDef {
-    _actorChildKey          :: !ActorKey
-  , _actorForker            :: !(IO () -> IO ThreadId)
-  , _actorPreStart          :: PreActorM (InitResult st)
-  , _actorPostStop          :: !(RO_ActorM st ())
-  , _actorPreRestart
-      :: !(SomeException -> GenericEvent -> RO_ActorM st ())
-  , _actorPostRestart
-      :: !(SomeException -> GenericEvent -> RO_ActorM st (InitResult st))
-  , _actorRestartDirective  :: !(HashMap String (ErrorHandler st))
-  , _actorDelayAfterStart   :: !TimeInterval
-  , _actorReceive           :: !(HashMap String (EventHandler st))
-  , _actorRestartAttempt    :: !Int
-  , _actorEventBusDecorator :: !(EventBusDecorator)
-  }
-  deriving (Typeable)
-
-data GenericActorDef = forall st . GenericActorDef (ActorDef st)
-
-data Actor
-  = Actor {
-    _actorQueue            :: !(TChan GenericEvent)
-  , _actorCtrlQueue        :: !(TChan ActorEvent)
-  , _actorCleanup          :: !Disposable
-  , _actorDef              :: !GenericActorDef
-  , _actorEventBus         :: !EventBus
-  , _actorLogger           :: !Logger
-  }
-  deriving (Typeable)
-
-data SpawnInfo
-  = NewActor {
-    _spawnActorDef   :: !GenericActorDef
-  }
-  | forall st . RestartActor {
-    _spawnQueue       :: !(TChan GenericEvent)
-  , _spawnCtrlQueue   :: !(TChan ActorEvent)
-  , _spawnPrevState   :: !st
-  , _spawnError       :: !SomeException
-  , _spawnFailedEvent :: !GenericEvent
-  , _spawnActorDef    :: !GenericActorDef
-  , _spawnDelay       :: !TimeInterval
-  }
-  deriving (Typeable)
-
-data SupervisionEvent
+data SupervisorEvent
   = ActorSpawned { _supEvInitActorDef :: !GenericActorDef }
   | ActorTerminated {
       _supEvTerminatedActorDef :: !GenericActorDef
@@ -176,33 +118,99 @@ data SupervisionEvent
     }
   deriving (Typeable)
 
+data ActorEvent
+  = NormalEvent     !GenericEvent
+  | ChildEvent      !ChildEvent
+  | SupervisorEvent !SupervisorEvent
+  deriving (Typeable)
+
+--------------------
+
+newtype ActorM st a
+  = ActorM { fromActorM :: StateT (st, EventBus, Actor) IO a }
+  deriving (Functor, Applicative, Monad, MonadIO, Typeable)
+
+newtype PreActorM a
+   = PreActorM { fromPreActorM :: ReaderT (ActorKey, EventBus, Logger) IO a }
+   deriving (Functor, Applicative, Monad, MonadIO, Typeable)
+
+newtype RO_ActorM st a
+  = RO_ActorM { fromRoActorM :: StateT (st, EventBus, Actor) IO a }
+  deriving (Functor, Applicative, Monad, MonadIO, Typeable)
+
+--------------------
+
+data ActorDef st
+  = ActorDef {
+    _actorChildKey :: !MActorKey
+  , _actorForker   :: !(IO () -> IO (Async ()))
+
+  , _actorPreStart  :: PreActorM (InitResult st)
+  , _actorPostStop  :: !(RO_ActorM st ())
+
+  , _actorPreRestart
+      :: !(SomeException -> GenericEvent -> RO_ActorM st ())
+  , _actorPostRestart
+      :: !(SomeException -> GenericEvent -> RO_ActorM st (InitResult st))
+
+  , _actorDelayAfterStart   :: !TimeInterval
+  , _actorRestartAttempt    :: !Int
+  , _actorRestartDirective  :: !(HashMap String (ErrorHandler st))
+  , _actorReceive           :: !(HashMap String (EventHandler st))
+  , _actorEventBusDecorator :: !EventBusDecorator
+
+  -- * supervision fields
+  , _actorSupervisorStrategy           :: !SupervisorStrategy
+  , _actorSupervisorBackoffDelayFn    :: !(AttemptCount -> TimeInterval)
+  , _actorSupervisorMaxRestartAttempts :: !AttemptCount
+  , _actorChildrenDef                  :: ![GenericActorDef]
+  }
+  deriving (Typeable)
+
+data GenericActorDef = forall st . GenericActorDef (ActorDef st)
+
+type ActorChildren = HashMap ActorKey Actor
+
+data Actor
+  = Actor {
+    _actorAbsoluteKey    :: !ActorKey
+  , _actorAsync          :: !(Async ())
+  , _actorGenericEvQueue :: !(TChan GenericEvent)
+  , _actorChildEvQueue   :: !(TChan ChildEvent)
+  , _actorSupEvQueue     :: !(TChan SupervisorEvent)
+  , _actorDef            :: !GenericActorDef
+  , _actorDisposable     :: !Disposable
+  , _actorEventBus       :: !EventBus -- ^ Event Bus with handlers filtering
+  , _actorLogger         :: !Logger
+  , _actorChildren       :: !(TVar ActorChildren)
+  }
+  deriving (Typeable)
+
+type ParentActor = Actor
+type ChildActor = Actor
+type ChildrenMap = TVar (HashMap ActorKey Actor)
+
+data StartStrategy
+  = ViaPreStart {
+    _startStrategyActorDef   :: !GenericActorDef
+  }
+  | forall st . ViaPreRestart {
+    _startStrategyPrevState      :: !st
+  , _startStrategyGenericEvQueue :: !(TChan GenericEvent)
+  , _startStrategyChildEvQueue   :: !(TChan ChildEvent)
+  , _startStrategySupEvQueue     :: !(TChan SupervisorEvent)
+  , _startStrategySupChildren    :: !ChildrenMap
+  , _startStrategyError          :: !SomeException
+  , _startStrategyFailedEvent    :: !GenericEvent
+  , _startStrategyActorDef       :: !GenericActorDef
+  , _startStrategyDelay          :: !TimeInterval
+  }
+  deriving (Typeable)
+
 data SupervisorStrategy
   = OneForOne
   | AllForOne
   deriving (Show, Eq, Ord, Typeable)
-
-data SupervisorDef
-  = SupervisorDef {
-    _supervisorStrategy           :: !SupervisorStrategy
-  , _supervisorBackoffDelayFn     :: !(AttemptCount -> TimeInterval)
-  -- ^ TODO: Move this attribute to ActorDef
-  , _supervisorMaxRestartAttempts :: !AttemptCount
-  , _supervisorDefChildren        :: ![GenericActorDef]
-  }
-  deriving (Typeable)
-
-data Supervisor
-  = Supervisor {
-    _supervisorDef        :: !SupervisorDef
-  , _supervisorAsync      :: !(Async ())
-  , _supervisorEventBus   :: !EventBus
-  , _supervisorDisposable :: !Disposable
-  , _supervisorChildren   :: !(TVar (HashMap ActorKeyVal Actor))
-  , _supervisorLogger     :: !Logger
-  , _sendToSupervisor     :: !(SupervisionEvent -> IO ())
-  }
-  deriving (Typeable)
-
 
 --------------------------------------------------------------------------------
 -- * instance definitions
@@ -210,18 +218,6 @@ data Supervisor
 instance Functor InitResult where
   fmap f (InitOk s) = InitOk (f s)
   fmap _ (InitFailure err) = InitFailure err
-
---------------------
-
-instance ToLogger Supervisor where
-  toLogger = _supervisorLogger
-
-instance IDisposable Supervisor where
-  dispose = dispose . _supervisorDisposable
-  isDisposed = Disposable.isDisposed . _supervisorDisposable
-
-instance ToDisposable Supervisor where
-  toDisposable = Disposable.toDisposable . _supervisorDisposable
 
 --------------------
 
@@ -239,16 +235,16 @@ instance ToActorKey Actor where
 instance ToLogger Actor where
   toLogger = _actorLogger
 
-instance ToDisposable Actor where
-  toDisposable = Disposable.toDisposable . _actorCleanup
-
 instance IDisposable Actor where
-  dispose = Disposable.dispose . Disposable.toDisposable
-  isDisposed = Disposable.isDisposed . Disposable.toDisposable
+  dispose = dispose . _actorDisposable
+  isDisposed = Disposable.isDisposed . _actorDisposable
+
+instance ToDisposable Actor where
+  toDisposable = Disposable.toDisposable . _actorDisposable
 
 --------------------
 
-instance Show SupervisionEvent where
+instance Show SupervisorEvent where
   show (ActorSpawned gActorDef) =
     "ActorSpawned " ++ toActorKey gActorDef
   show (ActorTerminated gActorDef) =
@@ -262,7 +258,7 @@ instance Show SupervisionEvent where
         actorErr = _supEvTerminatedError supEv
     in "ActorFailedOnInitialize " ++ actorKey ++ " " ++ show actorErr
 
-instance Exception SupervisionEvent
+instance Exception SupervisorEvent
 
 --------------------
 
@@ -341,14 +337,25 @@ incRestartAttempt (GenericActorDef actorDef) =
     restartAttempt = _actorRestartAttempt actorDef
 {-# INLINE incRestartAttempt #-}
 
-
 getRestartDelay :: GenericActorDef -> TimeInterval
 getRestartDelay = error "TODO"
 
 --------------------------------------------------------------------------------
 
-createActorQueues :: SpawnInfo
-                  -> IO (TChan GenericEvent, TChan ActorEvent)
-createActorQueues (NewActor {}) = (,) <$> newTChanIO <*> newTChanIO
-createActorQueues spawn@(RestartActor {}) =
-  return (_spawnQueue spawn, _spawnCtrlQueue spawn)
+createOrGetActorQueues
+  :: StartStrategy
+  -> IO ( TChan GenericEvent
+        , TChan ChildEvent
+        , TChan SupervisorEvent)
+createOrGetActorQueues (ViaPreStart {}) =
+  (,,) <$> newTChanIO <*> newTChanIO <*> newTChanIO
+createOrGetActorQueues strategy@(ViaPreRestart {}) =
+  return ( _startStrategyGenericEvQueue strategy
+         , _startStrategyChildEvQueue strategy
+         , _startStrategySupEvQueue strategy)
+
+createOrGetSupChildren
+  :: StartStrategy -> IO ChildrenMap
+createOrGetSupChildren (ViaPreStart {}) = newTVarIO HashMap.empty
+createOrGetSupChildren strategy@(ViaPreRestart {}) =
+  return $  _startStrategySupChildren strategy
