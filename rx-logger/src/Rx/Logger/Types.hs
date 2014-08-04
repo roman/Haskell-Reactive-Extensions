@@ -74,7 +74,17 @@ data LogLevel
             -- system administrators
 
   | NONE    -- ^ Special level that can be used to turn off logging
-  deriving (Show, Eq, Ord, Enum, Generic, Typeable)
+  deriving (Eq, Ord, Enum, Generic, Typeable)
+
+instance Show LogLevel where
+  show TRACE   = "TRACE  "
+  show LOUD    = "LOUD   "
+  show NOISY   = "NOISY  "
+  show CONFIG  = "CONFIG "
+  show INFO    = "INFO   "
+  show WARNING = "WARNING"
+  show SEVERE  = "SEVERE "
+  show NONE    = "NONE   "
 
 --------------------------------------------------------------------------------
 -- * class definitions
