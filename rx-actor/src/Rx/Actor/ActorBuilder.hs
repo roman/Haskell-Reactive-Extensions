@@ -148,26 +148,21 @@ backoff fn  = liftF $ BackoffI fn ()
 maxRestarts :: AttemptCount -> ActorBuilder st ()
 maxRestarts attemptCount = liftF $ MaxRestartsI attemptCount ()
 
-addChild :: ActorDef st -> ActorBuilder st ()
+addChild :: ActorDef st1 -> ActorBuilder st2 ()
 addChild actorDef = liftF $ AddChildI actorDef ()
 
-buildChild :: ActorBuilder st () -> ActorBuilder st ()
+buildChild :: ActorBuilder st1 () -> ActorBuilder st2 ()
 buildChild actorBuilder = do
   liftF $ AddChildI (defActor actorBuilder) ()
 
 --------------------------------------------------------------------------------
 
 defActor :: ActorBuilder st () -> ActorDef st
-defActor buildInstructions =
-    let result = eval emptyActorDef buildInstructions
-    in case _actorChildKey result of
-      Nothing -> error "FATAL: Actor must have an actor key"
-      Just _  -> result
+defActor buildInstructions = eval emptyActorDef buildInstructions
   where
     emptyActorDef =
       ActorDef {
         -- * actor fields
-
           _actorChildKey                     = Nothing
         , _actorForker                       = async
         , _actorPreStart                     = error "preStart needs to be defined"

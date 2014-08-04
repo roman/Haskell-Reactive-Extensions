@@ -106,10 +106,10 @@ data SupervisorEvent
       _supEvTerminatedActorDef :: !GenericActorDef
     }
   | forall st . ActorFailedWithError {
-      _supEvTerminatedState       :: !st
+      _supEvTerminatedActor       :: !Actor
+    , _supEvTerminatedState       :: !st
     , _supEvTerminatedFailedEvent :: !GenericEvent
     , _supEvTerminatedError       :: !SomeException
-    , _supEvTerminatedActor       :: !Actor
     , _supEvTerminatedDirective   :: !RestartDirective
     }
   | ActorFailedOnInitialize {
@@ -142,7 +142,7 @@ newtype RO_ActorM st a
 
 data ActorDef st
   = ActorDef {
-    _actorChildKey :: !MActorKey
+    _actorChildKey :: !(Maybe ActorKey)
   , _actorForker   :: !(IO () -> IO (Async ()))
 
   , _actorPreStart  :: PreActorM (InitResult st)
@@ -188,6 +188,7 @@ data Actor
 
 type ParentActor = Actor
 type ChildActor = Actor
+type FailingActor = Actor
 type ChildrenMap = TVar (HashMap ActorKey Actor)
 
 data StartStrategy
@@ -223,14 +224,19 @@ instance Functor InitResult where
 
 instance ToActorKey (ActorDef st) where
   toActorKey actor =
-    fromMaybe (error "FATAL: toActorKey: Actor must have an actor key")
-              (_actorChildKey actor)
+    fromMaybe "root" (_actorChildKey actor)
+
+instance Show (ActorDef st) where
+  show = toActorKey
 
 instance ToActorKey GenericActorDef where
   toActorKey (GenericActorDef actorDef) = toActorKey actorDef
 
+instance Show GenericActorDef where
+  show = toActorKey
+
 instance ToActorKey Actor where
-  toActorKey = toActorKey . _actorDef
+  toActorKey = _actorAbsoluteKey
 
 instance ToLogger Actor where
   toLogger = _actorLogger
@@ -259,6 +265,13 @@ instance Show SupervisorEvent where
     in "ActorFailedOnInitialize " ++ actorKey ++ " " ++ show actorErr
 
 instance Exception SupervisorEvent
+
+--------------------
+
+instance Show StartStrategy where
+  show (ViaPreStart gActorDef) = "ViaPreStart " ++ show gActorDef
+  show strategy@(ViaPreRestart {}) =
+    "ViaPreRestart " ++ show (_startStrategyActorDef strategy)
 
 --------------------
 
@@ -318,7 +331,7 @@ instance ToLogMsg ActorLogMsg where
                 '[' -> ""
                 ' ' -> ""
                 _ -> " "
-    in mappend (toLogMsg $ "[actorKey: " ++ actorKey ++ "]" ++ sep)
+    in mappend (toLogMsg $ "[" ++ actorKey ++ "]" ++ sep)
                payload
 
 
