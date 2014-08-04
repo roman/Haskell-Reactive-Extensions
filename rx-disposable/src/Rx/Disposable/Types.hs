@@ -23,7 +23,7 @@ data Disposable
   }
   | CompositeDisposable {
     _isDisposed    :: TVar Bool
-  , _subscriptions :: TVar [Disposable]
+  , _disposables :: TVar [Disposable]
   }
   deriving (Typeable)
 
@@ -32,13 +32,13 @@ instance ToDisposable Disposable where
 
 
 newtype BooleanDisposable
-  = BS Disposable
+  = BD Disposable
   deriving (ToDisposable, Typeable)
 
 newtype SingleAssignmentDisposable
-  = SAS Disposable
+  = SAD Disposable
   deriving (ToDisposable, Typeable)
 
 newtype CompositeDisposable
-  = CS Disposable
+  = CD Disposable
   deriving (ToDisposable, Typeable)
