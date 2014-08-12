@@ -41,6 +41,7 @@ module Rx.Observable
        , Observable.repeatEvery'
        , Observable.scanLeftM
        , Observable.scanLeftWithItemM
+       , Observable.throttle
        , Observable.timeout
        , Observable.timeoutAfterFirst
        , Observable.timeoutSelect
@@ -71,6 +72,7 @@ import qualified Rx.Observable.Repeat   as Observable
 import qualified Rx.Observable.Scan     as Observable
 import qualified Rx.Observable.Take     as Observable
 import qualified Rx.Observable.Take     as Observable
+import qualified Rx.Observable.Throttle as Observable
 import qualified Rx.Observable.Timeout  as Observable
 
 import Rx.Disposable (Disposable, dispose)

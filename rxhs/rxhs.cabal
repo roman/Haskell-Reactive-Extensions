@@ -37,6 +37,7 @@ library
     Rx.Observable.Scan,
     Rx.Observable.Scheduler,
     Rx.Observable.Take,
+    Rx.Observable.Throttle,
     Rx.Observable.Timeout,
     Rx.Subject.SingleSubject,
     Rx.Subject.PublishSubject
