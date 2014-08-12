@@ -61,6 +61,7 @@ class ToActorKey actor where
 type MActorKey = Maybe ActorKey
 type EventBus = Subject GenericEvent
 type ActorKey = String
+type ChildKey = ActorKey
 type AttemptCount = Int
 type EventBusDecorator =
   Observable Sync ActorEvent -> Observable Sync ActorEvent
@@ -147,6 +148,7 @@ data ActorDef st
 
   , _actorPreStart  :: PreActorM (InitResult st)
   , _actorPostStop  :: !(RO_ActorM st ())
+  , _actorStopDelay :: !TimeInterval
 
   , _actorPreRestart
       :: !(SomeException -> GenericEvent -> RO_ActorM st ())
@@ -334,41 +336,4 @@ instance ToLogMsg ActorLogMsg where
     in mappend (toLogMsg $ "[" ++ actorKey ++ "]" ++ sep)
                payload
 
-
 --------------------------------------------------------------------------------
--- helper Functions
-
-getRestartAttempts :: GenericActorDef -> Int
-getRestartAttempts (GenericActorDef actorDef) = _actorRestartAttempt actorDef
-{-# INLINE getRestartAttempts #-}
-
-incRestartAttempt :: GenericActorDef -> IO GenericActorDef
-incRestartAttempt (GenericActorDef actorDef) =
-    return $ GenericActorDef
-           $ actorDef { _actorRestartAttempt = succ restartAttempt }
-  where
-    restartAttempt = _actorRestartAttempt actorDef
-{-# INLINE incRestartAttempt #-}
-
-getRestartDelay :: GenericActorDef -> TimeInterval
-getRestartDelay = error "TODO"
-
---------------------------------------------------------------------------------
-
-createOrGetActorQueues
-  :: StartStrategy
-  -> IO ( TChan GenericEvent
-        , TChan ChildEvent
-        , TChan SupervisorEvent)
-createOrGetActorQueues (ViaPreStart {}) =
-  (,,) <$> newTChanIO <*> newTChanIO <*> newTChanIO
-createOrGetActorQueues strategy@(ViaPreRestart {}) =
-  return ( _startStrategyGenericEvQueue strategy
-         , _startStrategyChildEvQueue strategy
-         , _startStrategySupEvQueue strategy)
-
-createOrGetSupChildren
-  :: StartStrategy -> IO ChildrenMap
-createOrGetSupChildren (ViaPreStart {}) = newTVarIO HashMap.empty
-createOrGetSupChildren strategy@(ViaPreRestart {}) =
-  return $  _startStrategySupChildren strategy

@@ -6,18 +6,20 @@ module Rx.Actor
        ( GenericEvent(..), EventBus
        , ActorBuilder, ActorM, ActorDef, Actor, RestartDirective(..), InitResult(..)
        , SupervisorStrategy(..), ActorEvent(..), Typeable, Logger
-       -- ^ * Actor Builder API
+       -- ^ * Actor API
        , defActor, actorKey, preStart, postStop, preRestart, postRestart
        , onError, desc, receive, useBoundThread, decorateEventBus, startDelay
-       , strategy, backoff, maxRestarts, addChild, buildChild
-       -- ^ * Actor message handlers API
-       , getState, setState, modifyState, getEventBus, emit
+       , strategy, backoff, maxRestarts, addChild, buildChild, stopDelay
+       , startRootActor, stopRootActor, joinRootActor
+       -- ^ * ActorM API
+       , getState, setState, modifyState, getEventBus, emit, spawnChild
        -- ^ * EventBus API
        , fromGenericEvent, toGenericEvent, emitEvent, typeOfEvent, filterEvent, mapEvent
+       , newEventBus, emitOnActor
        -- ^ * Logger API
        , newLogger, Only(..)
        -- ^ * Extra API
-       , liftIO, newEventBus, emitOnActor, startRootActor, stopRootActor, dispose, onNext
+       , liftIO,  dispose, onNext
        ) where
 
 
@@ -28,6 +30,8 @@ import Rx.Observable (onNext, dispose)
 import Rx.Logger (Logger, Only(..), newLogger)
 import Rx.Logger.Monad as Logger
 import Rx.Subject (newPublishSubject)
+
+import qualified Control.Monad.State as State
 
 import Rx.Actor.Internal
 import Rx.Actor.ActorBuilder
@@ -47,3 +51,12 @@ emitOnActor ev actor = do
                                  (_actorLogger actor)
   void $ runActorCtx $ Logger.noisyF "Emit event {}" (Only $ show $ typeOf ev)
   onNext (_actorEventBus actor) (toGenericEvent ev)
+
+spawnChild :: ChildKey -> ActorBuilder childSt () -> ActorM st ()
+spawnChild childKey childBuilder = ActorM $ do
+  let childDef = defActor (childBuilder >> actorKey childKey)
+  (_, _, actor) <- State.get
+  liftIO $
+    sendSupEventToActor
+      actor
+      (ActorSpawned $ GenericActorDef childDef)

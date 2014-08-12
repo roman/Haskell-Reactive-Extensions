@@ -8,7 +8,7 @@ import Control.Concurrent.Async (Async, async, asyncBound)
 import Control.Exception (Exception, SomeException)
 import Control.Monad.Free
 
-import Tiempo (TimeInterval, seconds)
+import Tiempo (TimeInterval, microSeconds, seconds)
 
 import qualified Data.HashMap.Strict as HashMap
 
@@ -22,6 +22,7 @@ data ActorBuilderF st x
   | SetStartDelayI TimeInterval x
   | PreStartI (PreActorM (InitResult st)) x
   | PostStopI (RO_ActorM st ()) x
+  | StopDelayI TimeInterval x
   | PreRestartI  (SomeException -> GenericEvent -> RO_ActorM st ()) x
   | PostRestartI (SomeException -> GenericEvent -> RO_ActorM st (InitResult st)) x
   | forall e. (Typeable e, Exception e)
@@ -41,6 +42,7 @@ instance Functor (ActorBuilderF st) where
   fmap f (SetStartDelayI delay x) = SetStartDelayI delay (f x)
   fmap f (PreStartI action x) = PreStartI action (f x)
   fmap f (PostStopI action x) = PostStopI action (f x)
+  fmap f (StopDelayI delay x) = StopDelayI delay (f x)
   fmap f (PreRestartI action x) = PreRestartI action (f x)
   fmap f (PostRestartI action x) = PostRestartI action (f x)
   fmap f (OnErrorI action x) = OnErrorI action (f x)
@@ -67,7 +69,12 @@ type ActorBuilder st = Free (ActorBuilderF st)
 --------------------------------------------------------------------------------
 
 actorKey :: String -> ActorBuilder st ()
-actorKey key = liftF $ SetActorKeyI key ()
+actorKey key =
+    liftF $ SetActorKeyI (normalizeKey key) ()
+  where
+    replaceChar '/' = '_'
+    replaceChar ch  = ch
+    normalizeKey = map replaceChar
 
 startDelay :: TimeInterval -> ActorBuilder st ()
 startDelay delay = liftF $ SetStartDelayI delay ()
@@ -91,6 +98,10 @@ preStart action = liftF $ PreStartI action ()
 -- "STOPPED"
 postStop :: (RO_ActorM st ()) -> ActorBuilder st ()
 postStop action = liftF $ PostStopI action ()
+
+
+stopDelay :: TimeInterval -> ActorBuilder st ()
+stopDelay interval = liftF $ StopDelayI interval ()
 
 -- |
 -- Example:
@@ -137,6 +148,7 @@ decorateEventBus decorator = liftF $ AppendEventBusDecoratorI decorator ()
 receive :: Typeable t => (t -> ActorM st ()) -> ActorBuilder st ()
 receive handler = liftF $ HandlerI handler ()
 
+
 --------------------
 
 strategy :: SupervisorStrategy -> ActorBuilder st ()
@@ -167,6 +179,7 @@ defActor buildInstructions = eval emptyActorDef buildInstructions
         , _actorForker                       = async
         , _actorPreStart                     = error "preStart needs to be defined"
         , _actorPostStop                     = return ()
+        , _actorStopDelay                    = (microSeconds 500)
         , _actorPreRestart                   = \_ _ -> return ()
         , _actorPostRestart                  = \_ _ -> getState >>= return . InitOk
         , _actorRestartDirective             =
@@ -197,6 +210,9 @@ defActor buildInstructions = eval emptyActorDef buildInstructions
 
     eval actorDef (Free (PostStopI postStop_ next)) =
       eval (actorDef {_actorPostStop = postStop_}) next
+
+    eval actorDef (Free (StopDelayI delay next)) =
+      eval (actorDef {_actorStopDelay = delay}) next
 
     eval actorDef (Free (PreRestartI preRestart_ next)) =
       eval (actorDef { _actorPreRestart = preRestart_}) next

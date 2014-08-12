@@ -3,19 +3,18 @@
 {-# LANGUAGE RecordWildCards #-}
 module Rx.Actor.Internal where
 
-import Control.Applicative ((<$>))
+import Control.Applicative ((<$>), (<*>))
 
 import Control.Monad (forM, forM_, void, when)
 
 import Control.Exception (SomeException(..), fromException, try, throwIO)
 import Control.Concurrent (yield)
-import Control.Concurrent.Async (cancel, link, link2)
+import Control.Concurrent.Async (cancel, link, wait)
 import Control.Concurrent.MVar (MVar, newEmptyMVar, takeMVar, putMVar)
 import Control.Concurrent.STM ( TChan, TVar
                               , atomically, orElse
                               , newTVarIO, modifyTVar, readTVar, writeTVar
                               , newTChanIO, writeTChan, readTChan )
-
 import Data.Maybe (fromJust)
 import Data.Typeable (typeOf)
 
@@ -63,9 +62,12 @@ startRootActor logger evBus actorDef = do
              supQueue
 
 stopRootActor :: Actor -> IO ()
-stopRootActor actor = do
-  stopChildren actor
-  sendChildEventToActor actor ActorStopped
+stopRootActor = (`sendChildEventToActor` ActorStopped)
+
+joinRootActor :: Actor -> IO ()
+joinRootActor actor = do
+  wait $ _actorAsync actor
+
 
 -------------------- * Child Creation functions * --------------------
 
@@ -100,8 +102,8 @@ spawnActor strategy parent logger evBus children gevQueue childQueue supQueue =
                           Nothing -> "/user"
                           Just p  -> toActorKey p  ++ "/" ++ toActorKey actorDef
 
-      actorVar            <- newEmptyMVar
-      actorDisposable     <- newCompositeDisposable
+      actorVar        <- newEmptyMVar
+      actorDisposable <- newCompositeDisposable
 
       actorAsync <-
         _actorForker actorDef $
@@ -142,6 +144,8 @@ spawnActor strategy parent logger evBus children gevQueue childQueue supQueue =
             loudF "[{}] actor disposable called"
                   (Only absoluteKey)
                   logger
+        sendChildEventToActor actor ActorStopped
+        threadDelay $ _actorStopDelay actorDef
         cancel actorAsync
 
       -- create eventBus subscription disposable
@@ -151,13 +155,17 @@ spawnActor strategy parent logger evBus children gevQueue childQueue supQueue =
           Nothing -> do
             safeSubscribe (toAsyncObservable evBus)
                           (atomically . writeTChan gevQueue)
-                          (throwIO)
+                          throwOnError
                           (return ())
 
       Disposable.append asyncDisposable actorDisposable
       Disposable.append eventBusDisposable actorDisposable
       return actor
-
+  where
+    throwOnError err =
+      case fromException err of
+        Just (ActorTerminated _) -> return ()
+        Nothing -> throwIO err
 
 initActor
   :: forall st. StartStrategy -> Maybe ParentActor -> ActorDef st
@@ -219,7 +227,6 @@ newActor parent actorDef actor = do
         let childKey = toActorKey gChildActorDef
         _child <- startChildActor (ViaPreStart gChildActorDef) actor
         return ()
-        -- link2 (_actorAsync actor) (_actorAsync child)
 
 ---
 
@@ -266,7 +273,13 @@ startActorLoop mparent actorDef actor st0 = do
     handleActorObservableError serr = do
       let runActorCtx = evalReadOnlyActorM st0 (_actorEventBus actor) actor
       case mparent of
-        Nothing -> throwIO serr
+        Nothing ->
+          case fromException serr of
+            Just (ActorTerminated _) ->
+              return ()
+            Just err@(ActorFailedWithError {}) ->
+              throwIO $ _supEvTerminatedError err
+            Nothing -> throwIO serr
         Just parent ->
           case fromException serr of
             Just err -> sendSupEventToActor parent err
@@ -307,30 +320,33 @@ actorLoop mParent actorDef actor st (ChildEvent (ActorRestarted err gev)) = do
 actorLoop mParent actorDef actor st (ChildEvent ActorStopped) = do
   void $ evalReadOnlyActorM st (_actorEventBus actor) actor $ do
     case mParent of
-      Just parent  -> Logger.traceF "Stop actor from Parent {}"
-                                    (Only $ toActorKey parent)
+      Just parent ->
+        Logger.traceF "Stop actor from Parent {}"
+                      (Only $ toActorKey parent)
       Nothing ->
         Logger.trace ("Stop actor from user" :: String)
 
     unsafeCoerce $ _actorPostStop actorDef
+
+  stopChildren actor
   stopActorLoop actorDef
 
-actorLoop _ actorDef actor actorSt (SupervisorEvent ev) = do
+actorLoop _ actorDef actor st (SupervisorEvent ev) = do
   case ev of
     (ActorSpawned gChildActorDef) ->
-      void $ addChildActor actor actorSt gChildActorDef
+      void $ addChildActor actor st gChildActorDef
 
     (ActorTerminated child) ->
-      removeChildActor actor actorSt child
+      removeChildActor actor st child
 
     (ActorFailedOnInitialize err _) ->
-      cleanupActor actor actorSt err
+      cleanupActor actor st err
 
     (ActorFailedWithError child prevChildSt failedEv err directive) ->
-      restartChildActor actorDef actor actorSt
+      restartChildActor actorDef actor st
                         child prevChildSt
                         failedEv err directive
-  return actorSt
+  return st
 
 -------------------- * Child functions * --------------------
 
@@ -581,6 +597,7 @@ cleanupActor actor actorSt err = do
   disposeChildren actor
   throwIO err
 
+--------------------------------------------------------------------------------
 
 onChildren :: (ChildActor -> IO ()) -> ParentActor -> IO ()
 onChildren onChildFn parent = do
@@ -593,11 +610,52 @@ stopChildren = onChildren (`sendChildEventToActor` ActorStopped)
 disposeChildren :: ParentActor -> IO ()
 disposeChildren = onChildren dispose
 
+--------------------------------------------------------------------------------
+
 sendToActor :: Actor -> GenericEvent -> IO ()
 sendToActor actor = atomically . writeTChan (_actorGenericEvQueue actor)
+{-# INLINE sendToActor #-}
 
 sendChildEventToActor :: Actor -> ChildEvent -> IO ()
 sendChildEventToActor actor = atomically . writeTChan (_actorChildEvQueue actor)
+{-# INLINE sendChildEventToActor #-}
 
 sendSupEventToActor :: Actor -> SupervisorEvent -> IO ()
 sendSupEventToActor actor = atomically . writeTChan (_actorSupEvQueue actor)
+{-# INLINE sendSupEventToActor #-}
+
+--------------------------------------------------------------------------------
+
+createOrGetActorQueues
+  :: StartStrategy
+  -> IO ( TChan GenericEvent
+        , TChan ChildEvent
+        , TChan SupervisorEvent)
+createOrGetActorQueues (ViaPreStart {}) =
+  (,,) <$> newTChanIO <*> newTChanIO <*> newTChanIO
+createOrGetActorQueues strategy@(ViaPreRestart {}) =
+  return ( _startStrategyGenericEvQueue strategy
+         , _startStrategyChildEvQueue strategy
+         , _startStrategySupEvQueue strategy)
+{-# INLINE createOrGetActorQueues #-}
+
+createOrGetSupChildren
+  :: StartStrategy -> IO ChildrenMap
+createOrGetSupChildren (ViaPreStart {}) = newTVarIO HashMap.empty
+createOrGetSupChildren strategy@(ViaPreRestart {}) =
+  return $  _startStrategySupChildren strategy
+{-# INLINE createOrGetSupChildren #-}
+
+--------------------------------------------------------------------------------
+
+getRestartAttempts :: GenericActorDef -> Int
+getRestartAttempts (GenericActorDef actorDef) = _actorRestartAttempt actorDef
+{-# INLINE getRestartAttempts #-}
+
+incRestartAttempt :: GenericActorDef -> IO GenericActorDef
+incRestartAttempt (GenericActorDef actorDef) =
+    return $ GenericActorDef
+           $ actorDef { _actorRestartAttempt = succ restartAttempt }
+  where
+    restartAttempt = _actorRestartAttempt actorDef
+{-# INLINE incRestartAttempt #-}

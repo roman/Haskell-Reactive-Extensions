@@ -50,7 +50,8 @@ assertActorReceives logger evBus actorBuilder spec = do
           Nothing -> return ()
           Just (msg, assertion) -> do
             output <- takeMVar resultVar
-            assertBool msg (assertion output)
+            assertBool (msg ++ " (received: " ++ show output ++ ")")
+                       (assertion output)
 
 anyAsyncException :: Selector SomeAsyncException
 anyAsyncException = const True
@@ -98,10 +99,24 @@ actorSpec logger evBus = do
           actorKey "failing-actor"
           failingActor)
         [ (GenericEvent (), Nothing) ]
-      threadDelay (seconds 1) `shouldThrow` anyAsyncException
+          `shouldThrow` errorCall "fail!"
+
+  describe "dynamic child" $ do
+    it "can receive emitted events" $ do
+      let input = 777 :: Int
+
+      assertActorReceives logger evBus
+          (\assertOutput -> do
+              preStart $ return (InitOk ())
+              receive $ \() ->
+                spawnChild "single-type" $ do
+                  preStart $ return (InitOk ())
+                  singleTypeActor assertOutput)
+          [ (GenericEvent (), Nothing)
+          , (GenericEvent input, Just ("should receive event", (== input)))]
 
 
-  describe "child" $ do
+  describe "static child" $ do
 
     it "can receive emitted events" $ do
       let input = 777 :: Int
@@ -186,7 +201,7 @@ actorSpec logger evBus = do
             , ( GenericEvent "foo", Just ("should receive event", (== "foo")) ) ]
 
       describe "with stop directive" $ do
-        it "stops error" $ do
+        it "stops failing actor" $ do
           let input = 123 :: Int
           assertActorReceives logger evBus
             (\assertOutput -> do
@@ -205,7 +220,9 @@ actorSpec logger evBus = do
             , ( GenericEvent "foo", Nothing)
             -- if stopped actor would still be alive, this would
             -- return a Right instead of a Left
-            , ( GenericEvent input, Just ("should receive event", (== Left input))) ]
+            , ( GenericEvent input
+              , Just ("should receive event of non stopped actor"
+                     , (== Left input))) ]
 
       describe "with restart directive" $ do
 
@@ -292,10 +309,12 @@ actorSpec logger evBus = do
   where
     singleTypeActor assertOutput = do
       preStart $ return (InitOk ())
+      stopDelay (seconds 0)
       receive (liftIO . assertOutput)
 
     simpleStateActor assertOutput = do
       preStart . return $ InitOk 0
+      stopDelay (seconds 0)
       receive $ \n  -> modifyState (+n)
       receive $ \() -> getState >>= liftIO . assertOutput
 
