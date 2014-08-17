@@ -5,7 +5,7 @@ module Rx.Actor.Internal where
 
 import Control.Applicative ((<$>), (<*>))
 
-import Control.Monad (forM, forM_, void, when)
+import Control.Monad (forM_, void, when)
 
 import Control.Exception (SomeException(..), fromException, try, throwIO)
 import Control.Concurrent (yield)
@@ -13,7 +13,7 @@ import Control.Concurrent.Async (cancel, link, wait)
 import Control.Concurrent.MVar (MVar, newEmptyMVar, takeMVar, putMVar)
 import Control.Concurrent.STM ( TChan, TVar
                               , atomically, orElse
-                              , newTVarIO, modifyTVar, readTVar, writeTVar
+                              , newTVarIO, modifyTVar, readTVar
                               , newTChanIO, writeTChan, readTChan )
 import Data.Maybe (fromJust)
 import Data.Typeable (typeOf)
@@ -24,22 +24,24 @@ import Tiempo.Concurrent (threadDelay)
 
 import Unsafe.Coerce (unsafeCoerce)
 
-import Rx.Observable ( safeSubscribe, scanLeftWithItemM, toAsyncObservable )
+import Rx.Observable ( subscribe, scanLeftWithItemM, toAsyncObservable )
 import Rx.Disposable ( Disposable, CompositeDisposable
                      , emptyDisposable, createDisposable, dispose
-                     , newCompositeDisposable, newSingleAssignmentDisposable
-                     , toDisposable )
+                     , newCompositeDisposable, toDisposable )
 
 import qualified Rx.Observable as Observable
 import qualified Rx.Disposable as Disposable
 
-import Rx.Logger (Logger, loud, loudF, Only(..))
+import Rx.Logger (Logger, loudF, Only(..))
 import qualified Rx.Logger.Monad as Logger
 
+-- NOTE: If using evalActorM, for some reason it throws
+-- a segfault (really crazy behavior, drive with caution)
 import Rx.Actor.Monad ( execActorM, runPreActorM
                       , evalReadOnlyActorM )
 import Rx.Actor.EventBus (fromGenericEvent, typeOfEvent)
 import Rx.Actor.Util (logError, logError_)
+import Rx.Actor.Logger ()
 import Rx.Actor.Types
 
 --------------------------------------------------------------------------------
@@ -137,13 +139,15 @@ spawnActor strategy parent logger evBus children gevQueue childQueue supQueue =
       asyncDisposable <- createDisposable $ do
         case parent of
           Just _ ->
-            loudF "[{}] actor disposable called"
+            loudF logger
+                  "[{}] actor disposable called"
                   (Only $ toActorKey actor)
-                  logger
+
           Nothing ->
-            loudF "[{}] actor disposable called"
+            loudF logger
+                  "[{}] actor disposable called"
                   (Only absoluteKey)
-                  logger
+
         sendChildEventToActor actor ActorStopped
         threadDelay $ _actorStopDelay actorDef
         cancel actorAsync
@@ -153,7 +157,7 @@ spawnActor strategy parent logger evBus children gevQueue childQueue supQueue =
         case parent of
           Just _ -> emptyDisposable
           Nothing -> do
-            safeSubscribe (toAsyncObservable evBus)
+            subscribe (toAsyncObservable evBus)
                           (atomically . writeTChan gevQueue)
                           throwOnError
                           (return ())
@@ -165,7 +169,7 @@ spawnActor strategy parent logger evBus children gevQueue childQueue supQueue =
     throwOnError err =
       case fromException err of
         Just (ActorTerminated _) -> return ()
-        Nothing -> throwIO err
+        _ -> throwIO err
 
 initActor
   :: forall st. StartStrategy -> Maybe ParentActor -> ActorDef st
@@ -201,9 +205,7 @@ initActor strategy parent actorDef actorVar actorDisposable = do
 
 newActor :: forall st . Maybe ParentActor -> ActorDef st -> Actor -> IO Disposable
 newActor parent actorDef actor = do
-    result <- runPreActorM (toActorKey actor)
-                           (_actorEventBus actor)
-                           (_actorLogger actor)
+    result <- runPreActorM actor
                            (do Logger.loud ("Calling preStart on actor" :: String)
                                _actorPreStart actorDef)
     threadDelay $ _actorDelayAfterStart actorDef
@@ -217,14 +219,11 @@ newActor parent actorDef actor = do
   where
     startNewChildren = do
       let children = _actorChildrenDef actorDef
-          execActor = runPreActorM (toActorKey actor)
-                                   (_actorEventBus actor)
-                                   (_actorLogger actor)
+          execActor = runPreActorM actor
 
       execActor $ Logger.loudF "Starting actor children: {}"
                                (Only $ show children)
       forM_ children $ \gChildActorDef -> do
-        let childKey = toActorKey gChildActorDef
         _child <- startChildActor (ViaPreStart gChildActorDef) actor
         return ()
 
@@ -236,7 +235,7 @@ restartActor
 restartActor parent actorDef actor oldSt err gev = do
   result <-
     logError $
-       evalReadOnlyActorM oldSt (_actorEventBus actor) actor
+       evalReadOnlyActorM oldSt actor
                           (unsafeCoerce $ _actorPostRestart actorDef err gev)
   case result of
     -- TODO: Do a warning with the error
@@ -254,10 +253,11 @@ startActorLoop :: forall st . Maybe ParentActor
                -> st
                -> IO Disposable
 startActorLoop mparent actorDef actor st0 = do
-    execActorM st0 (_actorEventBus actor) actor
+    void
+      $ execActorM st0 actor
       $ Logger.loud ("Starting actor loop" :: String)
 
-    safeSubscribe actorObservable
+    subscribe actorObservable
                   -- TODO: Receive a function that understands
                   -- the state and can provide meaningful
                   -- state <=> ev info
@@ -271,14 +271,14 @@ startActorLoop mparent actorDef actor st0 = do
       Observable.repeat (getEventFromQueue actor)
 
     handleActorObservableError serr = do
-      let runActorCtx = evalReadOnlyActorM st0 (_actorEventBus actor) actor
+      let runActorCtx = evalReadOnlyActorM st0 actor
       case mparent of
         Nothing ->
           case fromException serr of
-            Just (ActorTerminated _) ->
-              return ()
             Just err@(ActorFailedWithError {}) ->
               throwIO $ _supEvTerminatedError err
+            Just _ ->
+              return ()
             Nothing -> throwIO serr
         Just parent ->
           case fromException serr of
@@ -306,7 +306,7 @@ actorLoop _ actorDef actor st (NormalEvent gev) =
   handleGenericEvent actorDef actor st gev
 
 actorLoop mParent actorDef actor st (ChildEvent (ActorRestarted err gev)) = do
-  evalReadOnlyActorM st (_actorEventBus actor) actor $
+  evalReadOnlyActorM st actor $
     case mParent of
       Just parent ->
         Logger.traceF "Restart actor from Parent {}"
@@ -318,7 +318,7 @@ actorLoop mParent actorDef actor st (ChildEvent (ActorRestarted err gev)) = do
   stopActorLoopAndRaise RestartOne actorDef actor err st gev
 
 actorLoop mParent actorDef actor st (ChildEvent ActorStopped) = do
-  void $ evalReadOnlyActorM st (_actorEventBus actor) actor $ do
+  void $ evalReadOnlyActorM st actor $ do
     case mParent of
       Just parent ->
         Logger.traceF "Stop actor from Parent {}"
@@ -356,9 +356,10 @@ handleGenericEvent actorDef actor st gev = do
   let handlers = _actorReceive actorDef
       evType = typeOfEvent gev
 
-  let execActor = execActorM st (_actorEventBus actor) actor
+  let execActor = execActorM st actor
 
-  execActor
+  void
+    $ execActor
     $ Logger.noisyF "[evType: {}] actor receiving event"
                     (Only evType)
 
@@ -375,7 +376,7 @@ handleGenericEvent actorDef actor st gev = do
                  unsafeCoerce $ handler (fromJust $ fromGenericEvent gev)
         case result of
           Left err  -> handleActorLoopError actorDef actor err st gev
-          Right (st', _, _) -> return st'
+          Right (st', _) -> return st'
 
   return newSt
 
@@ -384,7 +385,7 @@ handleGenericEvent actorDef actor st gev = do
 handleActorLoopError
   :: forall st . ActorDef st -> Actor -> SomeException -> st -> GenericEvent -> IO st
 handleActorLoopError actorDef actor err@(SomeException innerErr) st gev = do
-  let runActorCtx = evalReadOnlyActorM st (_actorEventBus actor) actor
+  let runActorCtx = evalReadOnlyActorM st actor
 
   runActorCtx $
     Logger.noisyF "Received error on {}: {}"
@@ -429,7 +430,7 @@ stopActorLoopAndRaise
   -> IO st
 stopActorLoopAndRaise restartDirective actorDef actor err st gev = do
   let runActorCtx =
-          evalReadOnlyActorM st (_actorEventBus actor) actor
+          evalReadOnlyActorM st actor
 
   restartAllChildren actorDef actor st actor st gev err
 
@@ -467,10 +468,7 @@ sendActorInitErrorToSupervisor actor err = do
 sendGenericEvToChildren :: Actor -> GenericEvent -> IO ()
 sendGenericEvToChildren actor gev = do
   -- TODO: Add a Set of Available Handler Types
-  let runActorCtx =
-          runPreActorM (toActorKey actor)
-                       (_actorEventBus actor)
-                       (_actorLogger actor)
+  let runActorCtx = runPreActorM actor
 
   children <- HashMap.elems <$> (atomically $ readTVar $ _actorChildren actor)
   forM_ children $ \child -> do
@@ -480,7 +478,7 @@ sendGenericEvToChildren actor gev = do
     sendToActor child gev
 
 startChildActor
-  :: forall st. StartStrategy -> ParentActor -> IO ChildActor
+  :: StartStrategy -> ParentActor -> IO ChildActor
 startChildActor strategy actor = do
   let gChildActorDef = _startStrategyActorDef strategy
       childActorKey = toActorKey gChildActorDef
@@ -492,7 +490,7 @@ startChildActor strategy actor = do
 
 addChildActor :: forall st. Actor -> st -> GenericActorDef -> IO ChildActor
 addChildActor actor actorSt gChildActorDef = do
-  let runActorCtx = evalReadOnlyActorM actorSt (_actorEventBus actor) actor
+  let runActorCtx = evalReadOnlyActorM actorSt actor
       childActorKey = toActorKey gChildActorDef
   runActorCtx $ Logger.noisyF "Starting new actor {}" (Only childActorKey)
   startChildActor (ViaPreStart gChildActorDef) actor
@@ -505,7 +503,7 @@ restartSingleChild
 restartSingleChild actorDef actor actorSt
                         child prevChildSt failedEv err = do
 
-  let runActorCtx = evalReadOnlyActorM actorSt (_actorEventBus actor) actor
+  let runActorCtx = evalReadOnlyActorM actorSt actor
       gChildActorDef = _actorDef child
       restartAttempt = getRestartAttempts gChildActorDef
       backoffDelay =
@@ -537,13 +535,11 @@ restartAllChildren
   -> FailingActor -> failedSt
   -> GenericEvent -> SomeException
   -> IO ()
-restartAllChildren actorDef actor actorSt
-                        failingActor prevSt failedEv err = do
+restartAllChildren _actorDef actor _actorSt
+                        _failingActor _prevSt failedEv err = do
 
-  let failingActorKey = toActorKey failingActor
   children <- atomically $ readTVar $ _actorChildren actor
   forM_ (HashMap.elems children) $ \otherChild -> do
-    let otherChildKey = toActorKey otherChild
     sendChildEventToActor otherChild (ActorRestarted err failedEv)
 
 restartChildActor
@@ -554,7 +550,7 @@ restartChildActor
 restartChildActor actorDef actor actorSt
                   child prevChildSt
                   failedEv err directive = do
-  let runActorCtx = evalReadOnlyActorM actorSt (_actorEventBus actor) actor
+  let runActorCtx = evalReadOnlyActorM actorSt actor
   case directive of
     Raise -> do
       runActorCtx $
@@ -577,7 +573,7 @@ restartChildActor actorDef actor actorSt
 removeChildActor :: forall st child. ToActorKey child
                  => Actor -> st -> child -> IO ()
 removeChildActor actor actorSt child = do
-  let runActorCtx = evalReadOnlyActorM actorSt (_actorEventBus actor) actor
+  let runActorCtx = evalReadOnlyActorM actorSt actor
       childActorKey = toActorKey child
   wasRemoved <- atomically $ do
     childMap <- readTVar $ _actorChildren actor
@@ -592,7 +588,7 @@ removeChildActor actor actorSt child = do
 
 cleanupActor :: forall st. Actor -> st -> SomeException -> IO ()
 cleanupActor actor actorSt err = do
-  let runActorCtx = evalReadOnlyActorM actorSt (_actorEventBus actor) actor
+  let runActorCtx = evalReadOnlyActorM actorSt actor
   runActorCtx $ Logger.noisyF "Failing with error '{}'" (Only $ show err)
   disposeChildren actor
   throwIO err

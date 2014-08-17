@@ -1,5 +1,13 @@
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 module Rx.Actor.Monad where
 
+import Control.Concurrent.STM (atomically, writeTChan)
+
+import Control.Monad (liftM)
 import Control.Monad.Trans (MonadIO(..))
 import qualified Control.Monad.State.Strict as State
 import qualified Control.Monad.Reader as Reader
@@ -10,52 +18,73 @@ import Rx.Observable (onNext)
 
 import Rx.Logger (Logger)
 
+import Rx.Actor.ActorBuilder (ActorBuilder, defActor, actorKey)
 import Rx.Actor.EventBus (toGenericEvent)
 import Rx.Actor.Types
 
-setState :: st -> ActorM st ()
-setState st = ActorM $ do
-  (_, evBus, actor) <- State.get
-  State.put (st, evBus, actor)
+--------------------------------------------------------------------------------
+
+getEventBus :: (Monad m, HasActor m) => m EventBus
+getEventBus = _actorEventBus `liftM` getActor
+
+getActorKey :: (Monad m, HasActor m) => m ActorKey
+getActorKey = _actorAbsoluteKey `liftM` getActor
+
+getLogger :: (Monad m, HasActor m) => m Logger
+getLogger = _actorLogger `liftM` getActor
+
+sendSupervisionEvent :: (MonadIO m, HasActor m) => SupervisorEvent -> m ()
+sendSupervisionEvent ev = do
+  actor <- getActor
+  liftIO . atomically $ writeTChan (_actorSupEvQueue actor) ev
+
 
 modifyState :: (st -> st) -> ActorM st ()
 modifyState fn = ActorM $ do
-  (st, evBus, actor) <- State.get
-  State.put (fn st, evBus, actor)
+  (st, actor) <- State.get
+  State.put (fn st, actor)
 
-emit :: (MonadIO m, GetEventBus m, Typeable ev) => ev -> m ()
+emit :: (MonadIO m, HasActor m, Typeable ev) => ev -> m ()
 emit ev = do
   evBus <- getEventBus
   liftIO $ onNext evBus $ toGenericEvent ev
 
+spawnChild :: (MonadIO m, HasActor m)
+           => ChildKey -> ActorBuilder childSt -> m ()
+spawnChild childKey childBuilder = do
+  let childDef = defActor (childBuilder >> actorKey childKey)
+  sendSupervisionEvent (ActorSpawned $ GenericActorDef childDef)
+
+--------------------------------------------------------------------------------
+
 execActorM
-  :: st -> EventBus -> Actor
+  :: st -> Actor
   -> ActorM st a
-  -> IO (st, EventBus, Actor)
-execActorM st evBus actor (ActorM action) =
-  State.execStateT action (st, evBus, actor)
+  -> IO (st, Actor)
+execActorM st actor (ActorM action) =
+  State.execStateT action (st, actor)
 
 evalActorM
-  :: st -> EventBus -> Actor
+  :: st -> Actor
   -> ActorM st a
   -> IO a
-evalActorM st evBus actor (ActorM action) =
-  State.evalStateT action (st, evBus, actor)
+evalActorM st actor (ActorM action) =
+  State.evalStateT action (st, actor)
 
 runActorM
   :: st
-  -> EventBus -> Actor
+  -> Actor
   -> ActorM st a
-  -> IO (a, (st, EventBus, Actor))
-runActorM st evBus actor (ActorM action) =
-  State.runStateT action (st, evBus, actor)
-
-runPreActorM
-   :: ActorKey -> EventBus -> Logger -> PreActorM a -> IO a
-runPreActorM actorKey evBus logger (PreActorM action) =
-  Reader.runReaderT action (actorKey, evBus, logger)
+  -> IO (a, (st, Actor))
+runActorM st actor (ActorM action) =
+  State.runStateT action (st, actor)
 
 evalReadOnlyActorM
-  :: st -> EventBus -> Actor -> RO_ActorM st a -> IO a
-evalReadOnlyActorM st evBus actor (RO_ActorM action) =
-  State.evalStateT action (st, evBus, actor)
+  :: st -> Actor -> RO_ActorM st a -> IO a
+evalReadOnlyActorM st actor (RO_ActorM action) =
+  evalActorM st actor action
+
+runPreActorM
+   :: Actor -> PreActorM a -> IO a
+runPreActorM actor (PreActorM action) =
+  Reader.runReaderT action actor

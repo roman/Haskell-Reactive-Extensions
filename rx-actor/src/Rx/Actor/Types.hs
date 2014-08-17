@@ -8,12 +8,11 @@
 module Rx.Actor.Types where
 
 import Control.Concurrent.Async (Async)
-import Control.Concurrent.STM (TVar, TChan, newTChanIO)
+import Control.Concurrent.STM (TVar, TChan)
 
 import Control.Exception (Exception, SomeException)
-import Control.Concurrent.STM (newTVarIO)
 
-import Control.Applicative (Applicative, (<$>), (<*>))
+import Control.Applicative (Applicative)
 import Control.Monad.Trans (MonadIO(..))
 import Control.Monad.Reader (ReaderT)
 import Control.Monad.State.Strict (StateT)
@@ -27,16 +26,13 @@ import Data.HashMap.Strict (HashMap)
 import Data.Maybe (fromMaybe)
 
 import qualified Data.Text.Lazy as LText
-import qualified Data.HashMap.Strict as HashMap
 
 import Tiempo (TimeInterval)
 
 import Rx.Disposable ( Disposable, IDisposable, ToDisposable
                      , dispose )
 
-import Rx.Logger (Logger, LogLevel, ToLogger(..), ToLogMsg(..))
-import Rx.Logger.Monad (MonadLog(..))
-import qualified Rx.Logger as Logger
+import Rx.Logger (Logger, ToLogger(..), ToLogMsg(..))
 
 import Rx.Subject (Subject)
 import Rx.Observable (Observable, Sync)
@@ -46,8 +42,8 @@ import qualified Rx.Disposable as Disposable
 --------------------------------------------------------------------------------
 -- * class definitions
 
-class GetEventBus m where
-  getEventBus :: m EventBus
+class HasActor m where
+  getActor :: m Actor
 
 class GetState st m | m -> st where
   getState :: m st
@@ -73,6 +69,9 @@ data ActorLogMsg =
   ActorLogMsg { _actorLogMsgActorKey :: !ActorKey
               , _actorLogMsgPayload  :: !payload }
   deriving (Typeable)
+
+actorLogMsg :: ToLogMsg payload => ActorKey -> payload -> ActorLogMsg
+actorLogMsg = ActorLogMsg
 
 data EventHandler st
   = forall t . Typeable t => EventHandler String (t -> ActorM st ())
@@ -128,16 +127,16 @@ data ActorEvent
 --------------------
 
 newtype ActorM st a
-  = ActorM { fromActorM :: StateT (st, EventBus, Actor) IO a }
+  = ActorM { fromActorM :: StateT (st, Actor) IO a }
+  deriving (Functor, Applicative, Monad, MonadIO, Typeable)
+
+newtype RO_ActorM st a
+  = RO_ActorM { fromRoActorM :: ActorM st a }
   deriving (Functor, Applicative, Monad, MonadIO, Typeable)
 
 newtype PreActorM a
-   = PreActorM { fromPreActorM :: ReaderT (ActorKey, EventBus, Logger) IO a }
+   = PreActorM { fromPreActorM :: ReaderT Actor IO a }
    deriving (Functor, Applicative, Monad, MonadIO, Typeable)
-
-newtype RO_ActorM st a
-  = RO_ActorM { fromRoActorM :: StateT (st, EventBus, Actor) IO a }
-  deriving (Functor, Applicative, Monad, MonadIO, Typeable)
 
 --------------------
 
@@ -224,6 +223,58 @@ instance Functor InitResult where
 
 --------------------
 
+_getActor
+  :: State.StateT (st, Actor) IO Actor
+_getActor = State.get >>= \(_, actor) -> return actor
+
+_getState
+  :: State.StateT (st,  Actor) IO st
+_getState = State.get >>= \(st, _) -> return st
+
+setState :: st -> ActorM st ()
+setState st = ActorM $ do
+  (_, actor) <- State.get
+  State.put (st, actor)
+
+instance GetState st (ActorM st) where
+  getState = ActorM _getState
+
+instance HasActor (ActorM st) where
+  getActor = ActorM _getActor
+
+instance State.MonadState st (ActorM st) where
+  get = getState
+  put st = setState st
+
+instance Reader.MonadReader st (ActorM st) where
+  ask = getState
+  local modFn (ActorM action) =
+    ActorM . State.StateT $ \(st, actor) ->
+      State.runStateT action (modFn st, actor)
+
+--------------------
+
+deriving instance HasActor (RO_ActorM st)
+deriving instance Reader.MonadReader st (RO_ActorM st)
+instance GetState st (RO_ActorM st) where
+  getState = RO_ActorM getState
+
+--------------------
+
+instance HasActor PreActorM where
+  getActor = PreActorM Reader.ask
+
+--------------------
+
+instance ToActorKey String where
+  toActorKey = id
+
+instance ToActorKey a => ToActorKey (a, b) where
+  toActorKey (actorKey, _) = toActorKey actorKey
+
+instance ToActorKey a => ToActorKey (a, b, c) where
+  toActorKey (actorKey, _, _) = toActorKey actorKey
+
 instance ToActorKey (ActorDef st) where
   toActorKey actor =
     fromMaybe "root" (_actorChildKey actor)
@@ -274,53 +325,6 @@ instance Show StartStrategy where
   show (ViaPreStart gActorDef) = "ViaPreStart " ++ show gActorDef
   show strategy@(ViaPreRestart {}) =
     "ViaPreRestart " ++ show (_startStrategyActorDef strategy)
-
---------------------
-
-_actorLogMsg
-  :: ToLogMsg msg
-  => LogLevel -> msg -> StateT (st, EventBus, Actor) IO ()
-_actorLogMsg level msg0 = do
-  (_, _, actor) <- State.get
-  let msg = ActorLogMsg (toActorKey actor) msg0
-  State.lift $ Logger.logMsg level msg actor
-
-_actorGetEventBus
-  :: StateT (st, EventBus, Actor) IO EventBus
-_actorGetEventBus = State.get >>= \(_, evBus, _) -> return evBus
-
-_actorGetState
-  :: StateT (st, EventBus, Actor) IO st
-_actorGetState = State.get >>= \(st, _, _) -> return st
-
-instance MonadLog (ActorM st) where
-  logMsg level msg = ActorM $ _actorLogMsg level msg
-
-instance GetEventBus (ActorM st) where
-  getEventBus = ActorM _actorGetEventBus
-
-instance GetState st (ActorM st) where
-  getState = ActorM _actorGetState
-
-instance MonadLog (RO_ActorM st) where
-  logMsg level msg = RO_ActorM $ _actorLogMsg level msg
-
-instance GetEventBus (RO_ActorM st) where
-  getEventBus = RO_ActorM _actorGetEventBus
-
-instance GetState st (RO_ActorM st) where
-  getState = RO_ActorM _actorGetState
-
---------------------
-
-instance GetEventBus PreActorM where
-  getEventBus = PreActorM $ Reader.ask >>= \(_, evBus, _) -> return evBus
-
-instance MonadLog PreActorM where
-  logMsg level msg0 = PreActorM $ do
-    (actorKey, _, logger) <- Reader.ask
-    let msg = ActorLogMsg actorKey msg0
-    Reader.lift $ Logger.logMsg level msg logger
 
 --------------------
 

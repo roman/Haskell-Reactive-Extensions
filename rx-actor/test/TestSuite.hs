@@ -5,14 +5,12 @@ import Test.Hspec
 import Test.HUnit
 
 import Control.Monad (forM_)
-import Control.Exception ( ErrorCall, SomeException, SomeAsyncException
-                         , bracket, finally )
+import Control.Exception ( ErrorCall, SomeAsyncException, finally )
 
 import Control.Concurrent (yield)
 import Control.Concurrent.MVar
 
 import Tiempo
-import Tiempo.Concurrent
 
 import Rx.Logger (setupTracer, defaultSettings)
 import Rx.Actor
@@ -33,7 +31,7 @@ tests = actorSpec
 assertActorReceives
   :: (Show a, Eq a, Typeable a)
   => Logger -> EventBus
-  -> ((a -> IO ()) -> ActorBuilder st ())
+  -> ((a -> IO ()) -> ActorBuilder st)
   -> [(GenericEvent, Maybe (String, (a -> Bool)))]
   -> IO ()
 assertActorReceives logger evBus actorBuilder spec = do
@@ -42,7 +40,7 @@ assertActorReceives logger evBus actorBuilder spec = do
     actor <- startRootActor logger evBus actorDef
     go resultVar actor `finally` dispose actor
   where
-    go resultVar actor = do
+    go resultVar _actor = do
       yield
       forM_ spec $ \(input, mexpected) -> do
         onNext evBus input
@@ -84,8 +82,6 @@ actorSpec logger evBus = do
 
 
     it "can handle a state" $ do
-      let result = 10 :: Int
-      resultVar <- newEmptyMVar
       assertActorReceives logger evBus
         simpleStateActor
         [ (GenericEvent (1 :: Int), Nothing)
@@ -95,7 +91,7 @@ actorSpec logger evBus = do
 
     it "throws error on failure" $ do
       assertActorReceives logger evBus
-        (\(assertOutput :: () -> IO ()) -> do
+        (\(_ :: () -> IO ()) -> do
           actorKey "failing-actor"
           failingActor)
         [ (GenericEvent (), Nothing) ]
@@ -155,8 +151,6 @@ actorSpec logger evBus = do
         ]
 
     it "can handle a state" $ do
-      let result = 10 :: Int
-      resultVar <- newEmptyMVar
       assertActorReceives logger evBus
         (\assertOutput -> do
             preStart $ return $ InitOk ()
@@ -318,7 +312,7 @@ actorSpec logger evBus = do
       receive $ \n  -> modifyState (+n)
       receive $ \() -> getState >>= liftIO . assertOutput
 
-failingActor :: ActorBuilder () ()
+failingActor :: ActorBuilder ()
 failingActor = do
   preStart $ return (InitOk ())
   receive (\() -> error "fail!")

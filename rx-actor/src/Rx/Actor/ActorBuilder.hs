@@ -35,7 +35,7 @@ data ActorBuilderF st x
   | StrategyI   SupervisorStrategy x
   | MaxRestartsI AttemptCount  x
   | BackoffI    (AttemptCount -> TimeInterval) x
-  | forall st . AddChildI (ActorDef st) x
+  | forall st1 . AddChildI (ActorDef st1) x
 
 instance Functor (ActorBuilderF st) where
   fmap f (SetActorKeyI key x) = SetActorKeyI key (f x)
@@ -59,7 +59,7 @@ instance Functor (ActorBuilderF st) where
   fmap f (AddChildI actorDef x) = AddChildI actorDef (f x)
 
 
-type ActorBuilder st = Free (ActorBuilderF st)
+type ActorBuilder st = Free (ActorBuilderF st) ()
 
 -- $setup
 -- >>> import Control.Concurrent.MVar
@@ -68,7 +68,7 @@ type ActorBuilder st = Free (ActorBuilderF st)
 
 --------------------------------------------------------------------------------
 
-actorKey :: String -> ActorBuilder st ()
+actorKey :: String -> ActorBuilder st
 actorKey key =
     liftF $ SetActorKeyI (normalizeKey key) ()
   where
@@ -76,7 +76,7 @@ actorKey key =
     replaceChar ch  = ch
     normalizeKey = map replaceChar
 
-startDelay :: TimeInterval -> ActorBuilder st ()
+startDelay :: TimeInterval -> ActorBuilder st
 startDelay delay = liftF $ SetStartDelayI delay ()
 
 -- |
@@ -85,7 +85,7 @@ startDelay delay = liftF $ SetStartDelayI delay ()
 -- >>> let actorDef = defActor $ preStart (return $ InitOk 0)
 -- >>> _actorPreStart actorDef
 -- InitOk 0
-preStart :: PreActorM (InitResult st) -> ActorBuilder st ()
+preStart :: PreActorM (InitResult st) -> ActorBuilder st
 preStart action = liftF $ PreStartI action ()
 
 -- |
@@ -96,11 +96,11 @@ preStart action = liftF $ PreStartI action ()
 -- >>> _actorPostStop actorDef
 -- >>> takeMVar result
 -- "STOPPED"
-postStop :: (RO_ActorM st ()) -> ActorBuilder st ()
+postStop :: (RO_ActorM st ()) -> ActorBuilder st
 postStop action = liftF $ PostStopI action ()
 
 
-stopDelay :: TimeInterval -> ActorBuilder st ()
+stopDelay :: TimeInterval -> ActorBuilder st
 stopDelay interval = liftF $ StopDelayI interval ()
 
 -- |
@@ -113,7 +113,7 @@ stopDelay interval = liftF $ StopDelayI interval ()
 -- 777
 preRestart
   :: (SomeException -> GenericEvent -> RO_ActorM st ())
-  -> ActorBuilder st ()
+  -> ActorBuilder st
 preRestart action = liftF $ PreRestartI action ()
 
 -- |
@@ -126,50 +126,50 @@ preRestart action = liftF $ PreRestartI action ()
 -- 777
 postRestart
   :: (SomeException -> GenericEvent -> RO_ActorM st (InitResult st))
-  -> ActorBuilder st ()
+  -> ActorBuilder st
 postRestart action = liftF $ PostRestartI action ()
 
 onError
   :: (Typeable e, Exception e)
   => (e -> RO_ActorM st RestartDirective)
-  -> ActorBuilder st ()
+  -> ActorBuilder st
 onError action = liftF $ OnErrorI action ()
 
-useBoundThread :: Bool -> ActorBuilder st ()
+useBoundThread :: Bool -> ActorBuilder st
 useBoundThread False = liftF $ SetForkerI async ()
 useBoundThread True  = liftF $ SetForkerI asyncBound ()
 
-desc :: String -> ActorBuilder st ()
+desc :: String -> ActorBuilder st
 desc str = liftF $ HandlerDescI str ()
 
-decorateEventBus :: EventBusDecorator -> ActorBuilder st ()
+decorateEventBus :: EventBusDecorator -> ActorBuilder st
 decorateEventBus decorator = liftF $ AppendEventBusDecoratorI decorator ()
 
-receive :: Typeable t => (t -> ActorM st ()) -> ActorBuilder st ()
+receive :: Typeable t => (t -> ActorM st ()) -> ActorBuilder st
 receive handler = liftF $ HandlerI handler ()
 
 
 --------------------
 
-strategy :: SupervisorStrategy -> ActorBuilder st ()
+strategy :: SupervisorStrategy -> ActorBuilder st
 strategy strat = liftF $ StrategyI strat ()
 
-backoff :: (AttemptCount -> TimeInterval) -> ActorBuilder st ()
+backoff :: (AttemptCount -> TimeInterval) -> ActorBuilder st
 backoff fn  = liftF $ BackoffI fn ()
 
-maxRestarts :: AttemptCount -> ActorBuilder st ()
+maxRestarts :: AttemptCount -> ActorBuilder st
 maxRestarts attemptCount = liftF $ MaxRestartsI attemptCount ()
 
-addChild :: ActorDef st1 -> ActorBuilder st2 ()
+addChild :: ActorDef st1 -> ActorBuilder st2
 addChild actorDef = liftF $ AddChildI actorDef ()
 
-buildChild :: ActorBuilder st1 () -> ActorBuilder st2 ()
+buildChild :: ActorBuilder st1 -> ActorBuilder st2
 buildChild actorBuilder = do
   liftF $ AddChildI (defActor actorBuilder) ()
 
 --------------------------------------------------------------------------------
 
-defActor :: ActorBuilder st () -> ActorDef st
+defActor :: ActorBuilder st -> ActorDef st
 defActor buildInstructions = eval emptyActorDef buildInstructions
   where
     emptyActorDef =

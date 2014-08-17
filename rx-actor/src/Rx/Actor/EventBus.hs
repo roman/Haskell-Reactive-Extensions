@@ -10,7 +10,7 @@ import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Set as Set
 
 import Rx.Observable ( Disposable, IObserver, IObservable, Observable
-                     , onNext, safeSubscribe, toAsyncObservable )
+                     , onNext, subscribe, toAsyncObservable )
 import qualified Rx.Observable as Observable
 
 import Rx.Actor.Util (getHandlerParamType1)
@@ -25,7 +25,7 @@ match = MatchHandler
 
 handleEvents :: EventBus -> [MatchHandler] -> IO Disposable
 handleEvents eventBus handlers = do
-    safeSubscribe (toAsyncObservable eventBus)
+    subscribe (toAsyncObservable eventBus)
                   handleEvent
                   throwIO
                   (return ())
