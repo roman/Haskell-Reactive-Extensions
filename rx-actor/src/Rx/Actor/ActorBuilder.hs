@@ -4,11 +4,11 @@
 module Rx.Actor.ActorBuilder where
 
 import Data.Typeable (Typeable)
-import Control.Concurrent (ThreadId, forkIO, forkOS)
+import Control.Concurrent.Async (Async, async, asyncBound)
 import Control.Exception (Exception, SomeException)
 import Control.Monad.Free
 
-import Tiempo (TimeInterval, seconds)
+import Tiempo (TimeInterval, microSeconds, seconds)
 
 import qualified Data.HashMap.Strict as HashMap
 
@@ -22,20 +22,27 @@ data ActorBuilderF st x
   | SetStartDelayI TimeInterval x
   | PreStartI (PreActorM (InitResult st)) x
   | PostStopI (RO_ActorM st ()) x
+  | StopDelayI TimeInterval x
   | PreRestartI  (SomeException -> GenericEvent -> RO_ActorM st ()) x
   | PostRestartI (SomeException -> GenericEvent -> RO_ActorM st (InitResult st)) x
   | forall e. (Typeable e, Exception e)
       => OnErrorI (e -> RO_ActorM st RestartDirective)  x
   | HandlerDescI String x
-  | SetForkerI (IO () -> IO ThreadId) x
+  | SetForkerI (IO () -> IO (Async ())) x
   | AppendEventBusDecoratorI EventBusDecorator x
   | forall t . Typeable t => HandlerI (t -> ActorM st ()) x
+
+  | StrategyI   SupervisorStrategy x
+  | MaxRestartsI AttemptCount  x
+  | BackoffI    (AttemptCount -> TimeInterval) x
+  | forall st1 . AddChildI (ActorDef st1) x
 
 instance Functor (ActorBuilderF st) where
   fmap f (SetActorKeyI key x) = SetActorKeyI key (f x)
   fmap f (SetStartDelayI delay x) = SetStartDelayI delay (f x)
   fmap f (PreStartI action x) = PreStartI action (f x)
   fmap f (PostStopI action x) = PostStopI action (f x)
+  fmap f (StopDelayI delay x) = StopDelayI delay (f x)
   fmap f (PreRestartI action x) = PreRestartI action (f x)
   fmap f (PostRestartI action x) = PostRestartI action (f x)
   fmap f (OnErrorI action x) = OnErrorI action (f x)
@@ -45,7 +52,14 @@ instance Functor (ActorBuilderF st) where
   fmap f (HandlerDescI str x) = HandlerDescI str (f x)
   fmap f (HandlerI action x) = HandlerI action (f x)
 
-type ActorBuilder st = Free (ActorBuilderF st)
+  fmap f (StrategyI strat x) = StrategyI strat (f x)
+  fmap f (MaxRestartsI attemptCount x) =
+    MaxRestartsI attemptCount (f x)
+  fmap f (BackoffI fn x) = BackoffI fn (f x)
+  fmap f (AddChildI actorDef x) = AddChildI actorDef (f x)
+
+
+type ActorBuilder st = Free (ActorBuilderF st) ()
 
 -- $setup
 -- >>> import Control.Concurrent.MVar
@@ -54,10 +68,15 @@ type ActorBuilder st = Free (ActorBuilderF st)
 
 --------------------------------------------------------------------------------
 
-actorKey :: String -> ActorBuilder st ()
-actorKey key = liftF $ SetActorKeyI key ()
+actorKey :: String -> ActorBuilder st
+actorKey key =
+    liftF $ SetActorKeyI (normalizeKey key) ()
+  where
+    replaceChar '/' = '_'
+    replaceChar ch  = ch
+    normalizeKey = map replaceChar
 
-startDelay :: TimeInterval -> ActorBuilder st ()
+startDelay :: TimeInterval -> ActorBuilder st
 startDelay delay = liftF $ SetStartDelayI delay ()
 
 -- |
@@ -66,7 +85,7 @@ startDelay delay = liftF $ SetStartDelayI delay ()
 -- >>> let actorDef = defActor $ preStart (return $ InitOk 0)
 -- >>> _actorPreStart actorDef
 -- InitOk 0
-preStart :: PreActorM (InitResult st) -> ActorBuilder st ()
+preStart :: PreActorM (InitResult st) -> ActorBuilder st
 preStart action = liftF $ PreStartI action ()
 
 -- |
@@ -77,8 +96,12 @@ preStart action = liftF $ PreStartI action ()
 -- >>> _actorPostStop actorDef
 -- >>> takeMVar result
 -- "STOPPED"
-postStop :: (RO_ActorM st ()) -> ActorBuilder st ()
+postStop :: (RO_ActorM st ()) -> ActorBuilder st
 postStop action = liftF $ PostStopI action ()
+
+
+stopDelay :: TimeInterval -> ActorBuilder st
+stopDelay interval = liftF $ StopDelayI interval ()
 
 -- |
 -- Example:
@@ -90,7 +113,7 @@ postStop action = liftF $ PostStopI action ()
 -- 777
 preRestart
   :: (SomeException -> GenericEvent -> RO_ActorM st ())
-  -> ActorBuilder st ()
+  -> ActorBuilder st
 preRestart action = liftF $ PreRestartI action ()
 
 -- |
@@ -103,52 +126,76 @@ preRestart action = liftF $ PreRestartI action ()
 -- 777
 postRestart
   :: (SomeException -> GenericEvent -> RO_ActorM st (InitResult st))
-  -> ActorBuilder st ()
+  -> ActorBuilder st
 postRestart action = liftF $ PostRestartI action ()
 
 onError
   :: (Typeable e, Exception e)
   => (e -> RO_ActorM st RestartDirective)
-  -> ActorBuilder st ()
+  -> ActorBuilder st
 onError action = liftF $ OnErrorI action ()
 
-useBoundThread :: Bool -> ActorBuilder st ()
-useBoundThread False = liftF $ SetForkerI forkIO ()
-useBoundThread True  = liftF $ SetForkerI forkOS ()
+useBoundThread :: Bool -> ActorBuilder st
+useBoundThread False = liftF $ SetForkerI async ()
+useBoundThread True  = liftF $ SetForkerI asyncBound ()
 
-desc :: String -> ActorBuilder st ()
+desc :: String -> ActorBuilder st
 desc str = liftF $ HandlerDescI str ()
 
-decorateEventBus :: EventBusDecorator -> ActorBuilder st ()
+decorateEventBus :: EventBusDecorator -> ActorBuilder st
 decorateEventBus decorator = liftF $ AppendEventBusDecoratorI decorator ()
 
-receive :: Typeable t => (t -> ActorM st ()) -> ActorBuilder st ()
+receive :: Typeable t => (t -> ActorM st ()) -> ActorBuilder st
 receive handler = liftF $ HandlerI handler ()
+
+
+--------------------
+
+strategy :: SupervisorStrategy -> ActorBuilder st
+strategy strat = liftF $ StrategyI strat ()
+
+backoff :: (AttemptCount -> TimeInterval) -> ActorBuilder st
+backoff fn  = liftF $ BackoffI fn ()
+
+maxRestarts :: AttemptCount -> ActorBuilder st
+maxRestarts attemptCount = liftF $ MaxRestartsI attemptCount ()
+
+addChild :: ActorDef st1 -> ActorBuilder st2
+addChild actorDef = liftF $ AddChildI actorDef ()
+
+buildChild :: ActorBuilder st1 -> ActorBuilder st2
+buildChild actorBuilder = do
+  liftF $ AddChildI (defActor actorBuilder) ()
 
 --------------------------------------------------------------------------------
 
-defActor :: ActorBuilder st () -> ActorDef st
-defActor buildInstructions =
-    let result = eval emptyActorDef buildInstructions
-    in case _actorChildKey result of
-      Nothing -> error "FATAL: Actor must have an actor key"
-      Just _  -> result
+defActor :: ActorBuilder st -> ActorDef st
+defActor buildInstructions = eval emptyActorDef buildInstructions
   where
     emptyActorDef =
       ActorDef {
-          _actorChildKey = Nothing
-        , _actorForker = forkIO
-        , _actorPreStart = error "preStart needs to be defined"
-        , _actorPostStop = return ()
-        , _actorPreRestart = \_ _ -> return ()
-        , _actorPostRestart = \_ _ -> getState >>= return . InitOk
-        , _actorRestartDirective =
+        -- * actor fields
+          _actorChildKey                     = Nothing
+        , _actorForker                       = async
+        , _actorPreStart                     = error "preStart needs to be defined"
+        , _actorPostStop                     = return ()
+        , _actorStopDelay                    = (microSeconds 500)
+        , _actorPreRestart                   = \_ _ -> return ()
+        , _actorPostRestart                  = \_ _ -> getState >>= return . InitOk
+        , _actorRestartDirective             =
          HashMap.singleton "SomeException"
                             (ErrorHandler $ \(_ :: SomeException) -> return Restart)
-        , _actorReceive = HashMap.empty
-        , _actorRestartAttempt = 0
-        , _actorDelayAfterStart = seconds 0
-        , _actorEventBusDecorator = id
+        , _actorReceive                      = HashMap.empty
+        , _actorRestartAttempt               = 0
+        , _actorDelayAfterStart              = seconds 0
+        , _actorEventBusDecorator            = id
+
+        -- * supervisor fields
+
+        , _actorSupervisorStrategy           = OneForOne
+        , _actorSupervisorBackoffDelayFn     = seconds . (2^)
+        , _actorSupervisorMaxRestartAttempts = 5
+        , _actorChildrenDef                  = []
         }
     eval actorDef (Pure _) = actorDef
 
@@ -163,6 +210,9 @@ defActor buildInstructions =
 
     eval actorDef (Free (PostStopI postStop_ next)) =
       eval (actorDef {_actorPostStop = postStop_}) next
+
+    eval actorDef (Free (StopDelayI delay next)) =
+      eval (actorDef {_actorStopDelay = delay}) next
 
     eval actorDef (Free (PreRestartI preRestart_ next)) =
       eval (actorDef { _actorPreRestart = preRestart_}) next
@@ -191,6 +241,19 @@ defActor buildInstructions =
     eval actorDef (Free (HandlerI handler next)) =
       eval (addReceiveHandler actorDef (EventHandler "" handler)) next
 
+    --------------------
+
+    eval actorDef (Free (StrategyI strat next)) =
+      eval (actorDef { _actorSupervisorStrategy = strat }) next
+    eval actorDef (Free (BackoffI backoffFn next)) =
+      eval (actorDef { _actorSupervisorBackoffDelayFn = backoffFn }) next
+    eval actorDef (Free (MaxRestartsI restartAttempts next)) =
+      eval (actorDef { _actorSupervisorMaxRestartAttempts = restartAttempts }) next
+    eval actorDef (Free (AddChildI childDef next)) =
+        let actorDefs = _actorChildrenDef actorDef
+        in eval (actorDef { _actorChildrenDef = gActorDef : actorDefs }) next
+      where
+        gActorDef = GenericActorDef childDef
 
 --------------------------------------------------------------------------------
 

@@ -91,7 +91,7 @@ module Rx.Disposable
 
 import qualified Rx.Disposable.BooleanDisposable          as BD
 import qualified Rx.Disposable.CompositeDisposable        as CD
-import qualified Rx.Disposable.Disposable                 as D
+import qualified Rx.Disposable.Internal                   as D
 import qualified Rx.Disposable.SingleAssignmentDisposable as SAD
 
 import Rx.Disposable.Types

@@ -39,7 +39,7 @@ commonTimeout' onTimeout shouldResetTimeout scheduler interval source =
   where
     main sourceDisposable timeoutDisposable observer = do
         resetTimeout
-        safeSubscribe source onNext_ onError_ onCompleted_
+        subscribe source onNext_ onError_ onCompleted_
       where
         resetTimeout = do
           timer <- scheduleTimed scheduler interval $ do
@@ -71,13 +71,13 @@ commonTimeoutAfterFirst' onTimeout shouldResetTimeout scheduler interval source 
       return $ toDisposable sourceDisposable
   where
     main observer sourceDisposable =
-        safeSubscribe source onNext_ onError_ onCompleted_
+        subscribe source onNext_ onError_ onCompleted_
       where
         onNext_ v = do
           onNext observer v
           when (shouldResetTimeout v) $ do
             newDisposable <-
-              safeSubscribe
+              subscribe
                 (commonTimeout' onTimeout shouldResetTimeout scheduler interval source)
                 (onNext observer)
                 (onError observer)
@@ -93,7 +93,7 @@ completeOnTimeoutError
   -> Observable Async a
 completeOnTimeoutError source =
     Observable $ \observer ->
-      safeSubscribe source
+      subscribe source
         (onNext observer)
         (onError_ observer)
         (onCompleted observer)

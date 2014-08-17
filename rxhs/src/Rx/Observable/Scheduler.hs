@@ -13,7 +13,7 @@ scheduleOn :: (IScheduler scheduler, IObservable observable)
 scheduleOn scheduler source = Observable $ \observer -> do
   allDisp <- newCompositeDisposable
   currentDisp <- newBooleanDisposable
-  subDisp <- safeSubscribe source
+  subDisp <- subscribe source
                (\v -> do
                  disp <- schedule scheduler (onNext observer v)
                  Disposable.set disp currentDisp)

@@ -46,7 +46,7 @@ setupTracer settings logger = do
           >>= maybe emptyDisposable
                     (\filepath -> do
                          sub <- serializeToFile filepath entryF logger
-                         config ("Log tracing on file " ++ filepath) logger
+                         config logger ("Log tracing on file " ++ filepath)
                          return sub)
     setupHandleTrace = do
       -- NOTE: Can use either STDOUT or STDERR for logging
@@ -59,7 +59,7 @@ setupTracer settings logger = do
       case getFirst . mconcat . map First $ results of
         Just handle -> do
           sub <- serializeToHandle handle entryF logger
-          config ("Log tracing on handle " ++ show handle) logger
+          config logger ("Log tracing on handle " ++ show handle)
           return sub
         Nothing -> emptyDisposable
 

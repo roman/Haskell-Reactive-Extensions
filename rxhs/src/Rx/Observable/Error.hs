@@ -7,7 +7,7 @@ catch :: (IObservable source, Exception e)
          => (e -> IO ()) -> source s a -> Observable s a
 catch errHandler source =
     Observable $ \observer -> do
-      safeSubscribe source
+      subscribe source
                     (onNext observer)
                     (onError_ observer)
                     (onCompleted observer)

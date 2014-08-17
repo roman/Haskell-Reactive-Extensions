@@ -9,19 +9,19 @@ import Control.Applicative
 import qualified Control.Concurrent.STM      as STM
 import qualified Control.Concurrent.STM.TVar as TVar
 
-import Rx.Disposable.Disposable ()
+import Rx.Disposable.Internal ()
 import Rx.Disposable.Types
 
 empty :: IO SingleAssignmentDisposable
 empty =
-  (SAS . DisposableContainer) <$> TVar.newTVarIO Nothing
+  (SAD . DisposableContainer) <$> TVar.newTVarIO Nothing
 
 create :: Disposable -> IO SingleAssignmentDisposable
 create sub =
-  (SAS . DisposableContainer) <$> TVar.newTVarIO (Just sub)
+  (SAD . DisposableContainer) <$> TVar.newTVarIO (Just sub)
 
 set :: Disposable -> SingleAssignmentDisposable -> IO ()
-set sub (SAS (DisposableContainer msubVar)) = do
+set sub (SAD (DisposableContainer msubVar)) = do
   msub <- STM.atomically $ TVar.readTVar msubVar
   case msub of
     Just _ -> error "Disposable already set"
@@ -29,7 +29,7 @@ set sub (SAS (DisposableContainer msubVar)) = do
 set _ _ = error "Invalid SingleAssignmentDisposable was created"
 
 get :: SingleAssignmentDisposable -> IO (Maybe Disposable)
-get (SAS (DisposableContainer msubVar)) =
+get (SAD (DisposableContainer msubVar)) =
   STM.atomically $ TVar.readTVar msubVar
 get _ = error "Invalid SingleAssignmentDisposable was created"
 

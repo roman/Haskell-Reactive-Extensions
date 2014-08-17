@@ -23,7 +23,7 @@ library
     Rx.Disposable.Types,
     Rx.Disposable.BooleanDisposable,
     Rx.Disposable.CompositeDisposable,
-    Rx.Disposable.Disposable,
+    Rx.Disposable.Internal,
     Rx.Disposable.SingleAssignmentDisposable
 
   -- other-extensions:

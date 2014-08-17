@@ -47,7 +47,7 @@ newtype LogT m a
 instance (MonadIO m) => MonadLog (LogT m) where
   logMsg level msg = LogT $ do
     logger <- ask
-    liftIO $ Core.logMsg level msg logger
+    liftIO $ Core.logMsg level logger msg
 
 withLogger :: (ToLogger logger, MonadIO m)
       => logger

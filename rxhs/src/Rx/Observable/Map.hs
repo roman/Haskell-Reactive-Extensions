@@ -14,7 +14,7 @@ concatMapM :: (IObservable observable)
            -> Observable s b
 concatMapM mapFn source =
   Observable $ \observer -> do
-    safeSubscribe source
+    subscribe source
       (\a -> do bs <- mapFn a; mapM_ (onNext observer) bs)
       (onError observer)
       (onCompleted observer)
