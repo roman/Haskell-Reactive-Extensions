@@ -26,7 +26,7 @@ serializeToHandle :: (ToLogger logger)
                   -> IO Disposable
 serializeToHandle handle entryF source = do
   hSetBuffering handle LineBuffering
-  Observable.safeSubscribe (toAsyncObservable (toLogger source))
+  Observable.subscribe (toAsyncObservable (toLogger source))
     (\output -> do
       isOpen <- hIsOpen handle
       when isOpen $
@@ -43,7 +43,7 @@ serializeToFile filepath entryF source = do
   allDisposables <- newCompositeDisposable
   handle <- openFile filepath AppendMode
   hSetBuffering handle LineBuffering
-  loggerSub <- Observable.safeSubscribe (toAsyncObservable (toLogger source))
+  loggerSub <- Observable.subscribe (toAsyncObservable (toLogger source))
     (\output -> do
       isOpen <- hIsOpen handle
       when isOpen $
