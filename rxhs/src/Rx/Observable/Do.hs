@@ -8,7 +8,7 @@ doAction :: IObservable source
          -> Observable s a
 doAction action source =
   Observable $ \observer -> do
-    safeSubscribe
+    subscribe
       source (\v -> action v >> onNext observer v)
              (onError observer)
              (onCompleted observer)

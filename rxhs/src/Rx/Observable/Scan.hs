@@ -14,7 +14,7 @@ scanLeftM foldFn acc0 source =
       main accVar observer
     where
       main accVar observer =
-          safeSubscribe source onNext_ onError_ onCompleted_
+          subscribe source onNext_ onError_ onCompleted_
         where
           onNext_ v = do
             acc <- atomically $ readTVar accVar
@@ -36,7 +36,7 @@ scanLeftWithItemM foldFn acc0 source =
       main accVar observer
     where
       main accVar observer =
-          safeSubscribe source onNext_ onError_ onCompleted_
+          subscribe source onNext_ onError_ onCompleted_
         where
           onNext_ v = do
             acc <- atomically $ readTVar accVar

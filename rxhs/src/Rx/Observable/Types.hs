@@ -3,7 +3,7 @@ module Rx.Observable.Types where
 
 import Data.Typeable (Typeable)
 
-import Control.Exception (Exception(..))
+import Control.Exception (Exception(..), throwIO)
 import Control.Monad (forever)
 
 import Control.Exception   (AsyncException (ThreadKilled), Handler (..),
@@ -109,6 +109,18 @@ instance ToSyncObservable TChan where
 
 --------------------------------------------------------------------------------
 
+unsafeSubscribe :: (IObservable observable)
+          => observable s v
+          -> (v -> IO ())
+          -> (SomeException -> IO ())
+          -> IO ()
+          -> IO Disposable
+unsafeSubscribe source nextHandler errHandler complHandler =
+    onSubscribe source $ Observer observerFn
+  where
+    observerFn (OnNext v) = nextHandler v
+    observerFn (OnError err) = errHandler err
+    observerFn OnCompleted = complHandler
 
 subscribe :: (IObservable observable)
           => observable s v
@@ -116,32 +128,31 @@ subscribe :: (IObservable observable)
           -> (SomeException -> IO ())
           -> IO ()
           -> IO Disposable
-subscribe source nextHandler errHandler complHandler =
-    onSubscribe source $ Observer observerFn
-  where
-    observerFn (OnNext v) = nextHandler v
-    observerFn (OnError err) = errHandler err
-    observerFn OnCompleted = complHandler
-
-subscribeObserver
-  :: (IObservable observable, ToObserver observer)
-  => observable s a -> observer a -> IO Disposable
-subscribeObserver source observer =
-  onSubscribe source $ toObserver observer
-
-safeSubscribe :: (IObservable observable)
-          => observable s v
-          -> (v -> IO ())
-          -> (SomeException -> IO ())
-          -> IO ()
-          -> IO Disposable
-safeSubscribe source nextHandler0 errHandler0 complHandler0 =
-    subscribe source nextHandler errHandler0 complHandler0
+subscribe source nextHandler0 errHandler0 complHandler0 =
+    unsafeSubscribe source nextHandler errHandler0 complHandler0
   where
     nextHandler v =
       (v `seq` nextHandler0 v)
         `catches` [ Handler (\err@ThreadKilled -> throw err)
                   , Handler errHandler0]
+
+
+subscribeOnNext :: (IObservable observable)
+                => observable s v
+                -> (v -> IO ())
+                -> IO Disposable
+subscribeOnNext source nextHandler =
+  subscribe source nextHandler throwIO (return ())
+
+subscribeObserver
+  :: (IObservable observable, ToObserver observer)
+  => observable s a -> observer a -> IO Disposable
+subscribeObserver source observer0 =
+  let observer = toObserver observer0
+  in subscribe source
+               (onNext observer)
+               (onError observer)
+               (onCompleted observer)
 
 --------------------------------------------------------------------------------
 

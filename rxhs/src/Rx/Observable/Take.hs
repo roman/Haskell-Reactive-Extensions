@@ -26,7 +26,7 @@ take n source = Observable $ \observer -> do
     return $ Disposable.toDisposable sourceDisposable
   where
     main sourceDisposable observer countdownVar =
-        safeSubscribe source onNext_ onError_ onCompleted_
+        subscribe source onNext_ onError_ onCompleted_
       where
         onNext_ v = do
           shouldFinish <- atomically $ do
@@ -53,7 +53,7 @@ takeWhileIO pred source = Observable $ \observer -> do
     return $ Disposable.toDisposable sourceDisposable
   where
     main sourceDisposable observer =
-        safeSubscribe source onNext_ onError_ onCompleted_
+        subscribe source onNext_ onError_ onCompleted_
       where
         onNext_ v = do
           shouldContinue <- pred v

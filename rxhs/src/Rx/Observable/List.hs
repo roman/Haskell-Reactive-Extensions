@@ -15,7 +15,7 @@ toList source = do
   doneVar <- MVar.newEmptyMVar
   accVar <- MVar.newMVar []
   disposable <-
-    safeSubscribe
+    subscribe
       source
       (\v -> MVar.modifyMVar_ accVar (return . (v:)))
       (\err -> do

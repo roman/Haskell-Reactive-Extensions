@@ -12,8 +12,9 @@ module Rx.Observable
        , Disposable
        , Observer (..)
        , Notification (..)
+       , unsafeSubscribe
        , subscribe
-       , safeSubscribe
+       , subscribeOnNext
        , subscribeObserver
        , dispose
 

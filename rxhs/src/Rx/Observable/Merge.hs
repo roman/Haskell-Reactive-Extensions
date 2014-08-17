@@ -38,7 +38,7 @@ merge obsSource = Observable $ \outerObserver -> do
          sourceDisp = do
 
         obsSourceDisp_ <-
-          safeSubscribe obsSource onNextSource onErrorSource onCompletedSource
+          subscribe obsSource onNextSource onErrorSource onCompletedSource
 
         Disposable.set obsSourceDisp_ sourceDisp
         Disposable.append (toDisposable sourceDisp) allDisposables
@@ -46,7 +46,7 @@ merge obsSource = Observable $ \outerObserver -> do
       where
         onNextSource source = do
           subId <- hashUnique `fmap` newUnique
-          disp <- safeSubscribe source onNext_ onError_ (onCompleted_ subId)
+          disp <- subscribe source onNext_ onError_ (onCompleted_ subId)
 
           Disposable.append disp allDisposables
           atomically $ TVar.modifyTVar dispSetVar $ Set.insert subId
