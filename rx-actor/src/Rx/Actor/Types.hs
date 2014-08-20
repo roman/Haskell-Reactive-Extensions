@@ -333,10 +333,14 @@ deriving instance Show ActorLogMsg
 instance ToLogMsg ActorLogMsg where
   toLogMsg (ActorLogMsg actorKey payload0) =
     let payload = toLogMsg payload0
-        sep = case LText.head payload of
-                '[' -> ""
-                ' ' -> ""
-                _ -> " "
+        sep =
+          if LText.null payload
+             then ""
+             else
+               case LText.head payload of
+                  '[' -> ""
+                  ' ' -> ""
+                  _ -> " "
     in mappend (toLogMsg $ "[" ++ actorKey ++ "]" ++ sep)
                payload
 
