@@ -205,17 +205,22 @@ initActor strategy parent actorDef actorVar actorDisposable = do
 
 newActor :: forall st . Maybe ParentActor -> ActorDef st -> Actor -> IO Disposable
 newActor parent actorDef actor = do
-    result <- runPreActorM actor
-                           (do Logger.loud ("Calling preStart on actor" :: String)
-                               _actorPreStart actorDef)
-    threadDelay $ _actorDelayAfterStart actorDef
-    case result of
-      InitFailure err -> do
+    eResult <-
+      try
+        $ runPreActorM actor
+                       (do Logger.loud ("Calling preStart on actor" :: String)
+                           _actorPreStart actorDef)
+    case eResult of
+      Left err ->
         sendActorInitErrorToSupervisor actor err
-        emptyDisposable
-      InitOk st -> do
-        startNewChildren
-        startActorLoop parent actorDef actor st
+      Right result -> do
+        threadDelay $ _actorDelayAfterStart actorDef
+        case result of
+          InitFailure err ->
+            sendActorInitErrorToSupervisor actor err
+          InitOk st -> do
+            startNewChildren
+            startActorLoop parent actorDef actor st
   where
     startNewChildren = do
       let children = _actorChildrenDef actorDef
@@ -241,9 +246,8 @@ restartActor parent actorDef actor oldSt err gev = do
     -- TODO: Do a warning with the error
     Nothing -> startActorLoop parent actorDef actor oldSt
     Just (InitOk newSt) -> startActorLoop parent actorDef actor newSt
-    Just (InitFailure initErr) -> do
-      void $ sendActorInitErrorToSupervisor actor initErr
-      emptyDisposable
+    Just (InitFailure initErr) ->
+      sendActorInitErrorToSupervisor actor initErr
 
 -------------------- * ActorLoop functions * --------------------
 
@@ -277,15 +281,20 @@ startActorLoop mparent actorDef actor st0 = do
           case fromException serr of
             Just err@(ActorFailedWithError {}) ->
               throwIO $ _supEvTerminatedError err
-            Just _ ->
-              return ()
-            Nothing -> throwIO serr
+            Just err -> do
+              let errMsg = "Unhandled SupervisorEvent received " ++ show err
+              runActorCtx $ Logger.warn errMsg
+            Nothing -> do
+              let errMsg = "Actor loop observable received non-supervisor error"
+                           ++ show serr
+              runActorCtx $ Logger.warn errMsg
+              throwIO serr
         Just parent ->
           case fromException serr of
             Just err -> sendSupEventToActor parent err
             Nothing -> do
               let errMsg =
-                    "FATAL: Arrived to unhandled error on actorLoop: " ++ show serr
+                    "Arrived to unhandled error on actorLoop: " ++ show serr
               runActorCtx $ Logger.severe errMsg
               error errMsg
 
@@ -340,7 +349,7 @@ actorLoop _ actorDef actor st (SupervisorEvent ev) = do
       removeChildActor actor st child
 
     (ActorFailedOnInitialize err _) ->
-      cleanupActor actor st err
+      cleanupActorAndRaise actor st err
 
     (ActorFailedWithError child prevChildSt failedEv err directive) ->
       restartChildActor actorDef actor st
@@ -454,14 +463,17 @@ stopActorLoopAndRaise restartDirective actorDef actor err st gev = do
 ---
 
 sendActorInitErrorToSupervisor
-  :: Actor -> SomeException -> IO ()
+  :: Actor -> SomeException -> IO Disposable
 sendActorInitErrorToSupervisor actor err = do
-  _ <- throwIO
+  let runActorCtx = runPreActorM actor
+  runActorCtx
+    $ Logger.warnF "Child failed at initialization: {}"
+                   (Only $ show err)
+  throwIO
     ActorFailedOnInitialize {
       _supEvTerminatedError = err
     , _supEvTerminatedActor = actor
     }
-  return ()
 
 -- -------------------- * Parent/Supervisior functions
 
@@ -555,7 +567,7 @@ restartChildActor actorDef actor actorSt
     Raise -> do
       runActorCtx $
         Logger.noisyF "Raise error from child {}" (Only $ toActorKey child)
-      cleanupActor actor actorSt err
+      cleanupActorAndRaise actor actorSt err
     RestartOne ->
       restartSingleChild actorDef actor actorSt child prevChildSt failedEv err
     Restart -> do
@@ -586,8 +598,8 @@ removeChildActor actor actorSt child = do
     runActorCtx $
       Logger.noisyF "Removing child {}" (Only childActorKey)
 
-cleanupActor :: forall st. Actor -> st -> SomeException -> IO ()
-cleanupActor actor actorSt err = do
+cleanupActorAndRaise :: forall st. Actor -> st -> SomeException -> IO ()
+cleanupActorAndRaise actor actorSt err = do
   let runActorCtx = evalReadOnlyActorM actorSt actor
   runActorCtx $ Logger.noisyF "Failing with error '{}'" (Only $ show err)
   disposeChildren actor
