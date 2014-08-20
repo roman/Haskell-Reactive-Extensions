@@ -11,10 +11,10 @@ module Rx.Actor
        -- ^ * Actor API
        , defActor, actorKey, preStart, postStop, preRestart, postRestart
        , onError, desc, receive, useBoundThread, decorateEventBus, startDelay
-       , strategy, backoff, maxRestarts, addChild, buildChild, stopDelay
+       , strategy, backoff, maxRestarts, addChild, stopDelay
        , startRootActor, stopRootActor, joinRootActor
        -- ^ * ActorM API
-       , setState, modifyState
+       , getActorKey, getEventBus, getLogger, setState, modifyState
        , emit, spawnChild, State.put, State.get, State.modify, Reader.ask, actorLogMsg
        -- ^ * EventBus API
        , fromGenericEvent, toGenericEvent, emitEvent, typeOfEvent, filterEvent, mapEvent

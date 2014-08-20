@@ -82,7 +82,7 @@ startDelay delay = liftF $ SetStartDelayI delay ()
 -- |
 -- Example:
 --
--- >>> let actorDef = defActor $ preStart (return $ InitOk 0)
+-- >>> let actorDef = evalActorBuilder $ preStart (return $ InitOk 0)
 -- >>> _actorPreStart actorDef
 -- InitOk 0
 preStart :: PreActorM (InitResult st) -> ActorBuilder st
@@ -92,7 +92,7 @@ preStart action = liftF $ PreStartI action ()
 -- Example:
 --
 -- >>> result <- newEmptyMVar :: IO (MVar String)
--- >>> let actorDef = defActor $ postStop (putMVar result "STOPPED")
+-- >>> let actorDef = evalActorBuilder $ postStop (putMVar result "STOPPED")
 -- >>> _actorPostStop actorDef
 -- >>> takeMVar result
 -- "STOPPED"
@@ -107,7 +107,7 @@ stopDelay interval = liftF $ StopDelayI interval ()
 -- Example:
 --
 -- >>> result <- newEmptyMVar :: IO (MVar Int)
--- >>> let actorDef = defActor $ preRestart (\st _ -> putMVar result st)
+-- >>> let actorDef = evalActorBuilder $ preRestart (\st _ -> putMVar result st)
 -- >>> _actorPreRestart actorDef 777 err
 -- >>> takeMVar result
 -- 777
@@ -120,7 +120,7 @@ preRestart action = liftF $ PreRestartI action ()
 -- Example:
 --
 -- >>> result <- newEmptyMVar :: IO (MVar Int)
--- >>> let actorDef = defActor $ postRestart (\st _ -> putMVar result st)
+-- >>> let actorDef = evalActorBuilder $ postRestart (\st _ -> putMVar result st)
 -- >>> _actorPostRestart actorDef 777 err
 -- >>> takeMVar result
 -- 777
@@ -160,17 +160,16 @@ backoff fn  = liftF $ BackoffI fn ()
 maxRestarts :: AttemptCount -> ActorBuilder st
 maxRestarts attemptCount = liftF $ MaxRestartsI attemptCount ()
 
-addChild :: ActorDef st1 -> ActorBuilder st2
-addChild actorDef = liftF $ AddChildI actorDef ()
-
-buildChild :: ActorBuilder st1 -> ActorBuilder st2
-buildChild actorBuilder = do
-  liftF $ AddChildI (defActor actorBuilder) ()
+addChild :: ActorKey -> ActorBuilder st1 -> ActorBuilder st2
+addChild key actorBuilder = do
+  liftF $ AddChildI (evalActorBuilder (actorBuilder >> actorKey key)) ()
 
 --------------------------------------------------------------------------------
 
-defActor :: ActorBuilder st -> ActorDef st
-defActor buildInstructions = eval emptyActorDef buildInstructions
+defActor = evalActorBuilder
+
+evalActorBuilder :: ActorBuilder st -> ActorDef st
+evalActorBuilder buildInstructions = eval emptyActorDef buildInstructions
   where
     emptyActorDef =
       ActorDef {
