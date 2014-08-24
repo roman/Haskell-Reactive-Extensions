@@ -5,28 +5,32 @@ import Test.Hspec
 import Test.HUnit
 
 import Control.Monad (forM_)
-import Control.Exception ( ErrorCall, SomeAsyncException, finally )
-
 import Control.Concurrent (yield)
+import Control.Exception ( Exception
+                         , ErrorCall (..)
+                         , SomeAsyncException
+                         , catch
+                         , finally )
+
 import Control.Concurrent.MVar
 
 import Tiempo
+import Tiempo.Concurrent
 
-import Rx.Logger (setupTracer, defaultSettings)
+import Rx.Logger (setupLogTracer, defaultSettings)
 import Rx.Actor
 
 main :: IO ()
 main = do
   logger <- newLogger
   evBus  <- newEventBus
-  disposable <- setupTracer defaultSettings logger
+  disposable <- setupLogTracer defaultSettings logger
   hspec (tests logger evBus) `finally` dispose disposable
 
 tests :: Logger
       -> EventBus
       -> Spec
 tests = actorSpec
-
 
 assertActorReceives
   :: (Show a, Eq a, Typeable a)
@@ -38,10 +42,11 @@ assertActorReceives logger evBus actorBuilder spec = do
     resultVar <- newEmptyMVar
     let actorDef = defActor $ actorBuilder (putMVar resultVar)
     actor <- startRootActor logger evBus actorDef
-    go resultVar actor `finally` dispose actor
+    go resultVar actor `finally` stopRootActor actor
   where
     go resultVar _actor = do
       yield
+      threadDelay (microSeconds 400)
       forM_ spec $ \(input, mexpected) -> do
         onNext evBus input
         case mexpected of
@@ -51,8 +56,39 @@ assertActorReceives logger evBus actorBuilder spec = do
             assertBool (msg ++ " (received: " ++ show output ++ ")")
                        (assertion output)
 
-anyAsyncException :: Selector SomeAsyncException
-anyAsyncException = const True
+assertRootActorFails
+  :: (Exception err, Eq err, Show a, Eq a, Typeable a)
+  => Logger -> EventBus
+  -> ((a -> IO ()) -> ActorBuilder st)
+  -> [(GenericEvent, Maybe (String, (a -> Bool)))]
+  -> err
+  -> IO ()
+assertRootActorFails logger evBus actorBuilder spec expectedErr = do
+    resultVar <- newEmptyMVar
+    let actorDef = defActor $ actorBuilder (putMVar resultVar)
+    actor <- startRootActor logger evBus actorDef
+    go resultVar actor
+      `catch` (assertEqual "shoud match error" expectedErr)
+      `finally` stopRootActor actor
+  where
+    go resultVar _actor = do
+      -- yield and delay to allow actor to setup
+      yield
+      threadDelay (microSeconds 400)
+
+      forM_ spec $ \(input, mexpected) -> do
+        onNext evBus input
+        case mexpected of
+          Nothing -> return ()
+          Just (msg, assertion) -> do
+            output <- takeMVar resultVar
+            assertBool (msg ++ " (received: " ++ show output ++ ")")
+                       (assertion output)
+
+      -- delay to allow actor to tearDown
+      yield
+      threadDelay (microSeconds 400)
+
 
 actorSpec :: Logger -> EventBus -> Spec
 actorSpec logger evBus = do
@@ -70,9 +106,10 @@ actorSpec logger evBus = do
       let leftInput  = 777 :: Int
           rightInput = "Hello" :: String
       assertActorReceives logger evBus
-        (\assertOutput -> do
+        (\ assertOutput -> do
             actorKey "multiple-handler-actor"
-            preStart $ return (InitOk ())
+            preStart $ do
+              return (InitOk ())
             receive (liftIO . assertOutput . Left)
             receive (liftIO . assertOutput . Right))
         [ (GenericEvent leftInput
@@ -90,24 +127,25 @@ actorSpec logger evBus = do
         , (GenericEvent (), Just ("state should be consistent", (== (10 :: Int)))) ]
 
     it "throws error on failure" $ do
-      assertActorReceives logger evBus
-        (\(_ :: () -> IO ()) -> do
+      assertRootActorFails logger evBus
+        (\ (_ :: () -> IO ()) -> do
           actorKey "failing-actor"
           failingActor)
         [ (GenericEvent (), Nothing) ]
-          `shouldThrow` errorCall "fail!"
+        (ErrorCall "fail!")
 
   describe "dynamic child" $ do
     it "can receive emitted events" $ do
       let input = 777 :: Int
 
       assertActorReceives logger evBus
-          (\assertOutput -> do
-              preStart $ return (InitOk ())
+          (\ assertOutput -> do
+              preStart $ do
+                return (InitOk ())
               receive $ \() ->
                 spawnChild "single-type" $ do
                   preStart $ return (InitOk ())
-                  singleTypeActor assertOutput)
+                  singleTypeActor  assertOutput)
           [ (GenericEvent (), Nothing)
           , (GenericEvent input, Just ("should receive event", (== input)))]
 
@@ -118,11 +156,11 @@ actorSpec logger evBus = do
       let input = 777 :: Int
 
       assertActorReceives logger evBus
-          (\assertOutput -> do
-              preStart $ return (InitOk ())
-              buildChild $ do
-                actorKey "single-type"
-                singleTypeActor assertOutput)
+          (\ assertOutput -> do
+              preStart $ do
+                return (InitOk ())
+              addChild "single-type" $ do
+                singleTypeActor  assertOutput)
           [(GenericEvent input, Just ("should receive event", (== input)))]
 
     it "can receive events of multiple types on children" $ do
@@ -130,16 +168,15 @@ actorSpec logger evBus = do
           rightInput = "555" :: String
 
       assertActorReceives logger evBus
-        (\assertOutput -> do
-            preStart $ return (InitOk ())
+        (\ assertOutput -> do
+            preStart $ do
+              return (InitOk ())
 
-            buildChild $ do
-              actorKey "left-type"
+            addChild "left-type" $ do
               preStart $ return (InitOk ())
               receive (liftIO . assertOutput . Left)
 
-            buildChild $ do
-              actorKey "right-type"
+            addChild "right-type" $ do
               preStart $ return (InitOk ())
               receive (liftIO . assertOutput . Right))
 
@@ -152,11 +189,13 @@ actorSpec logger evBus = do
 
     it "can handle a state" $ do
       assertActorReceives logger evBus
-        (\assertOutput -> do
-            preStart $ return $ InitOk ()
-            buildChild $ do
-              actorKey "child-with-state"
-              simpleStateActor assertOutput)
+        (\ assertOutput -> do
+            preStart $ do
+              return $ InitOk ()
+
+            addChild "child-with-state" $ do
+              simpleStateActor  assertOutput)
+
         [ (GenericEvent (1 :: Int), Nothing)
         , (GenericEvent (), Just ("state should be consistent", (== (1 :: Int))))
         , (GenericEvent (9 :: Int), Nothing)
@@ -168,10 +207,10 @@ actorSpec logger evBus = do
         it "raises the error" $ do
           let assertion =
                 assertActorReceives logger evBus
-                  (\assertOutput -> do
-                    preStart $ return $ InitOk ()
-                    buildChild $ do
-                      actorKey "failing-actor"
+                  (\ assertOutput -> do
+                    preStart $ do
+                      return $ InitOk ()
+                    addChild "failing-actor" $ do
                       preStart $ return $ InitOk ()
                       onError $ \(_ :: ErrorCall) -> return Raise
                       receive $ \(ev :: String) -> liftIO $ assertOutput ev
@@ -184,10 +223,10 @@ actorSpec logger evBus = do
       describe "with resume directive" $ do
         it "ignores error" $ do
           assertActorReceives logger evBus
-            (\assertOutput -> do
-              preStart $ return $ InitOk ()
-              buildChild $ do
-                actorKey "failing-actor"
+            (\ assertOutput -> do
+              preStart $ do
+                return $ InitOk ()
+              addChild "failing-actor" $ do
                 onError $ \(_ :: ErrorCall) -> return Resume
                 receive $ \(ev :: String) -> liftIO $ assertOutput ev
                 failingActor)
@@ -198,14 +237,15 @@ actorSpec logger evBus = do
         it "stops failing actor" $ do
           let input = 123 :: Int
           assertActorReceives logger evBus
-            (\assertOutput -> do
-              preStart $ return $ InitOk ()
-              buildChild $ do
-                actorKey "single-child"
+            (\ assertOutput -> do
+              preStart $ do
+                return $ InitOk ()
+
+              addChild "single-child" $ do
                 backoff . const $ seconds 0
-                singleTypeActor (assertOutput . Left)
-              buildChild $ do
-                actorKey "failing-actor"
+                singleTypeActor  (assertOutput . Left)
+
+              addChild "failing-actor" $ do
                 backoff . const $ seconds 0
                 onError $ \(_ :: ErrorCall) -> return Stop
                 receive $ \(ev :: String) -> liftIO . assertOutput $ Right ev
@@ -223,11 +263,13 @@ actorSpec logger evBus = do
         describe "with OneForOne strategy" $ do
           it "calls preRestart once" $ do
             assertActorReceives logger evBus
-              (\assertOutput -> do
-                preStart $ return $ InitOk ()
+              (\ assertOutput -> do
                 backoff (const $ seconds 0)
-                buildChild $ do
-                  actorKey "failing-actor"
+
+                preStart $ do
+                  return $ InitOk ()
+
+                addChild "failing-actor" $ do
                   preRestart $ \_err _ev ->
                     liftIO $ assertOutput True
                   onError $ \(_ :: ErrorCall) -> return Restart
@@ -236,11 +278,13 @@ actorSpec logger evBus = do
 
           it "calls postRestart once" $ do
             assertActorReceives logger evBus
-              (\assertOutput -> do
-                preStart $ return $ InitOk ()
+              (\ assertOutput -> do
                 backoff (const $ seconds 0)
-                buildChild $ do
-                  actorKey "failing-actor"
+
+                preStart $ do
+                  return $ InitOk ()
+
+                addChild "failing-actor" $ do
                   postRestart $ \_err _ev -> do
                     liftIO $ assertOutput True
                     return $ InitOk ()
@@ -252,17 +296,18 @@ actorSpec logger evBus = do
           it "calls preRestart for each actor" $ do
             let validValues = ["one", "two"]
             assertActorReceives logger evBus
-              (\assertOutput -> do
+              (\ assertOutput -> do
                 strategy AllForOne
-                preStart . return $ InitOk ()
                 backoff (const $ seconds 0)
-                buildChild $ do
-                  actorKey "one"
+
+                preStart $ do
+                  return $ InitOk ()
+
+                addChild "one" $ do
                   preStart . return $ InitOk ()
                   preRestart $ \_err _ev ->
                     liftIO $ assertOutput "one"
-                buildChild $ do
-                  actorKey "two"
+                addChild "two" $ do
                   preStart . return $ InitOk ()
                   preRestart $ \_err _ev ->
                     liftIO $ assertOutput "two"
@@ -276,18 +321,20 @@ actorSpec logger evBus = do
           it "calls postRestart for each actor" $ do
             let validValues = ["one", "two"]
             assertActorReceives logger evBus
-              (\assertOutput -> do
+              (\ assertOutput -> do
                 strategy AllForOne
-                preStart . return $ InitOk ()
                 backoff (const $ seconds 0)
-                buildChild $ do
-                  actorKey "one"
+
+                preStart $ do
+                  return $ InitOk ()
+
+                addChild "one" $ do
                   preStart . return $ InitOk ()
                   postRestart $ \_err _ev -> do
                     liftIO $ assertOutput "one"
                     return $ InitOk ()
-                buildChild $ do
-                  actorKey "two"
+
+                addChild "two" $ do
                   preStart . return $ InitOk ()
                   postRestart $ \_err _ev -> do
                     liftIO $ assertOutput "two"
@@ -301,13 +348,15 @@ actorSpec logger evBus = do
 
 
   where
-    singleTypeActor assertOutput = do
-      preStart $ return (InitOk ())
+    singleTypeActor  assertOutput = do
+      preStart $ do
+        return (InitOk ())
       stopDelay (seconds 0)
       receive (liftIO . assertOutput)
 
-    simpleStateActor assertOutput = do
-      preStart . return $ InitOk 0
+    simpleStateActor  assertOutput = do
+      preStart $ do
+        return $ InitOk 0
       stopDelay (seconds 0)
       receive $ \n  -> modifyState (+n)
       receive $ \() -> getState >>= liftIO . assertOutput

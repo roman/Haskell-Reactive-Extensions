@@ -281,6 +281,8 @@ startActorLoop mparent actorDef actor st0 = do
           case fromException serr of
             Just err@(ActorFailedWithError {}) ->
               throwIO $ _supEvTerminatedError err
+            Just (ActorTerminated {}) ->
+              return ()
             Just err -> do
               let errMsg = "Unhandled SupervisorEvent received " ++ show err
               runActorCtx $ Logger.warn errMsg
