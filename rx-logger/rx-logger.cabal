@@ -22,7 +22,8 @@ library
     Rx.Logger.Monad,
     Rx.Logger.Format,
     Rx.Logger.Serializer,
-    Rx.Logger.Env
+    Rx.Logger.Env,
+    Rx.Logger.LogLevelParser
 
   other-modules:
     Rx.Logger.Core,
@@ -32,6 +33,7 @@ library
   default-language:    Haskell2010
   build-depends:
     base >=4.6 && <4.8,
+    attoparsec,
     hashable,
     mtl,
     old-locale,

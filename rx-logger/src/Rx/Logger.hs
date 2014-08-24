@@ -16,7 +16,8 @@ module Rx.Logger
        , infoF
        , warnF
        , severeF
-       , setupTracer
+       , setupLogTracer
+       , setupLogTracerWithPrefix
        , ttccFormat
        , showFormat
        , defaultSettings

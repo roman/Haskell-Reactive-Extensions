@@ -48,13 +48,15 @@ data LogEntry
   deriving (Show, Typeable, Generic)
 
 data LogLevel
-  = TRACE   -- ^ Indicates normal tracing information.
+  = NONE    -- ^ Special level that can be used to turn off logging
+
+  | NOISY   -- ^ Indicates a highly detailed tracing message
 
   | LOUD    -- ^ Indicates a fairly detailed tracing message. By
             -- default logging calls for entering, returning, or
             -- throwing an exception are traced at this level
 
-  | NOISY   -- ^ Indicates a highly detailed tracing message
+  | TRACE   -- ^ Indicates normal tracing information.
 
   | CONFIG  -- ^ Intended to provide a variety of static configuration
             -- information, to assist in debugging problems that may be
@@ -73,8 +75,7 @@ data LogLevel
             -- should be reasonably intelligible to end users and to
             -- system administrators
 
-  | NONE    -- ^ Special level that can be used to turn off logging
-  deriving (Eq, Ord, Enum, Generic, Typeable)
+  deriving (Eq, Ord, Enum, Bounded, Generic, Typeable)
 
 instance Show LogLevel where
   show TRACE   = "TRACE  "

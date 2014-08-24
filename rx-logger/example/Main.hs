@@ -3,21 +3,19 @@ module Main where
 import qualified Control.Concurrent.Async as Async
 import           Control.Monad            (void)
 
-import Rx.Logger            (defaultSettings, newLogger, setupTracer,
+import Rx.Logger            (defaultSettings, newLogger, setupLogTracer,
                              ttccFormat)
 import Rx.Logger.Monad      (trace, withLogger)
 import Rx.Logger.Serializer (serializeToHandle)
--- import qualified Rx.Logger.Serializer.Color as Color (serializeToHandle)
 
-import Rx.Observable (onCompleted)
+import Rx.Observable (onCompleted, toAsyncObservable)
 import System.IO     (stdout)
 
 main :: IO ()
 main = do
   logger <- newLogger
-  void $ setupTracer defaultSettings logger
-  void $ serializeToHandle stdout ttccFormat logger
-  -- Color.serializeToHandle _logEntryThreadId ttccFormat stdout logger
+  void $ setupLogTracer defaultSettings logger
+  void $ serializeToHandle stdout ttccFormat $ toAsyncObservable logger
 
   a1 <- Async.async $ do
     withLogger logger $ trace "Trace 1"

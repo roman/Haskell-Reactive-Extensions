@@ -10,23 +10,21 @@ import qualified Data.Text.Lazy.IO as LText
 import           Rx.Disposable (Disposable, createDisposable,
                                 newCompositeDisposable)
 import qualified Rx.Disposable as Disposable
-
-import           Rx.Observable (toAsyncObservable)
-import qualified Rx.Observable as Observable
+import qualified Rx.Observable as Ob
 
 import System.IO (BufferMode (LineBuffering), Handle, IOMode (AppendMode),
                   hClose, hIsOpen, hSetBuffering, openFile)
 
 import Rx.Logger.Types
 
-serializeToHandle :: (ToLogger logger)
+serializeToHandle :: (Ob.IObservable logger)
                   => Handle
                   -> LogEntryFormatter
-                  -> logger
+                  -> logger Ob.Async LogEntry
                   -> IO Disposable
 serializeToHandle handle entryF source = do
   hSetBuffering handle LineBuffering
-  Observable.subscribe (toAsyncObservable (toLogger source))
+  Ob.subscribe source
     (\output -> do
       isOpen <- hIsOpen handle
       when isOpen $
@@ -34,22 +32,23 @@ serializeToHandle handle entryF source = do
     (\err -> throw err)
     (return ())
 
-serializeToFile :: (ToLogger logger)
+serializeToFile :: (Ob.IObservable logger)
                 => FilePath
                 -> LogEntryFormatter
-                -> logger
+                -> logger Ob.Async LogEntry
                 -> IO Disposable
 serializeToFile filepath entryF source = do
   allDisposables <- newCompositeDisposable
   handle <- openFile filepath AppendMode
   hSetBuffering handle LineBuffering
-  loggerSub <- Observable.subscribe (toAsyncObservable (toLogger source))
-    (\output -> do
-      isOpen <- hIsOpen handle
-      when isOpen $
-        LText.hPutStrLn handle $ entryF output)
-    (\err -> hClose handle >> throw err)
-    (hClose handle)
+  loggerSub <-
+    Ob.subscribe source
+                (\output -> do
+                    isOpen <- hIsOpen handle
+                    when isOpen $
+                      LText.hPutStrLn handle $ entryF output)
+                (\err -> hClose handle >> throw err)
+                (hClose handle)
 
 
   Disposable.append loggerSub allDisposables
