@@ -1,24 +1,17 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 module Main where
 
-import Test.Hspec
-import Test.HUnit
-
-import Control.Monad (forM_)
-import Control.Concurrent (yield)
-import Control.Exception ( Exception
-                         , ErrorCall (..)
-                         , SomeAsyncException
-                         , catch
+import Control.Exception ( ErrorCall (..)
                          , finally )
-
-import Control.Concurrent.MVar
-
 import Tiempo
-import Tiempo.Concurrent
 
 import Rx.Logger (setupLogTracer, defaultSettings)
 import Rx.Actor
+
+import Test.Hspec
+import Assertion
+
+--------------------------------------------------------------------------------
 
 main :: IO ()
 main = do
@@ -32,62 +25,7 @@ tests :: Logger
       -> Spec
 tests = actorSpec
 
-assertActorReceives
-  :: (Show a, Eq a, Typeable a)
-  => Logger -> EventBus
-  -> ((a -> IO ()) -> ActorBuilder st)
-  -> [(GenericEvent, Maybe (String, (a -> Bool)))]
-  -> IO ()
-assertActorReceives logger evBus actorBuilder spec = do
-    resultVar <- newEmptyMVar
-    let actorDef = defActor $ actorBuilder (putMVar resultVar)
-    actor <- startRootActor logger evBus actorDef
-    go resultVar actor `finally` stopRootActor actor
-  where
-    go resultVar _actor = do
-      yield
-      threadDelay (microSeconds 400)
-      forM_ spec $ \(input, mexpected) -> do
-        onNext evBus input
-        case mexpected of
-          Nothing -> return ()
-          Just (msg, assertion) -> do
-            output <- takeMVar resultVar
-            assertBool (msg ++ " (received: " ++ show output ++ ")")
-                       (assertion output)
-
-assertRootActorFails
-  :: (Exception err, Eq err, Show a, Eq a, Typeable a)
-  => Logger -> EventBus
-  -> ((a -> IO ()) -> ActorBuilder st)
-  -> [(GenericEvent, Maybe (String, (a -> Bool)))]
-  -> err
-  -> IO ()
-assertRootActorFails logger evBus actorBuilder spec expectedErr = do
-    resultVar <- newEmptyMVar
-    let actorDef = defActor $ actorBuilder (putMVar resultVar)
-    actor <- startRootActor logger evBus actorDef
-    go resultVar actor
-      `catch` (assertEqual "shoud match error" expectedErr)
-      `finally` stopRootActor actor
-  where
-    go resultVar _actor = do
-      -- yield and delay to allow actor to setup
-      yield
-      threadDelay (microSeconds 400)
-
-      forM_ spec $ \(input, mexpected) -> do
-        onNext evBus input
-        case mexpected of
-          Nothing -> return ()
-          Just (msg, assertion) -> do
-            output <- takeMVar resultVar
-            assertBool (msg ++ " (received: " ++ show output ++ ")")
-                       (assertion output)
-
-      -- delay to allow actor to tearDown
-      yield
-      threadDelay (microSeconds 400)
+--------------------------------------------------------------------------------
 
 
 actorSpec :: Logger -> EventBus -> Spec
@@ -96,58 +34,55 @@ actorSpec logger evBus = do
 
     it "can receive emitted events" $ do
       let input = 777 :: Int
-      assertActorReceives logger evBus
-        (\assertOutput -> do
-            actorKey "single-andler-actor"
-            singleTypeActor assertOutput)
-        [ (GenericEvent input, Just ("should receive event", (== input))) ]
+      testActorSystem logger evBus
+        (\sendToAssertReceived -> do
+            preStart $ return (InitOk ())
+            receive (\(ev :: Int) -> liftIO $ sendToAssertReceived ev))
+        [ [emitToActor input, assertReceived input] ]
 
     it "can receive events of multiple types" $ do
       let leftInput  = 777 :: Int
           rightInput = "Hello" :: String
-      assertActorReceives logger evBus
-        (\ assertOutput -> do
-            actorKey "multiple-handler-actor"
-            preStart $ do
-              return (InitOk ())
-            receive (liftIO . assertOutput . Left)
-            receive (liftIO . assertOutput . Right))
-        [ (GenericEvent leftInput
-          , Just ("should receive event", (== Left leftInput)))
-        , (GenericEvent rightInput
-          , Just ("should receive event", (== Right rightInput))) ]
+
+      testActorSystem logger evBus
+        (\sendToAssertReceived -> do
+            preStart $ return $ InitOk ()
+            receive (\(ev :: Int) ->
+                      liftIO . sendToAssertReceived $ Left ev)
+            receive (\(ev :: String) ->
+                      liftIO . sendToAssertReceived $ Right ev))
+
+        [ [ emitToActor leftInput, assertReceived (Left leftInput) ]
+        , [ emitToActor rightInput, assertReceived (Right rightInput) ]
+        ]
 
 
     it "can handle a state" $ do
-      assertActorReceives logger evBus
+      testActorSystem logger evBus
         simpleStateActor
-        [ (GenericEvent (1 :: Int), Nothing)
-        , (GenericEvent (), Just ("state should be consistent", (== (1 :: Int))))
-        , (GenericEvent (9 :: Int), Nothing)
-        , (GenericEvent (), Just ("state should be consistent", (== (10 :: Int)))) ]
+        [ [emitToActor (1 :: Int)]
+        , [emitToActor (), assertReceived 1]
+        , [emitToActor (9 :: Int)]
+        , [emitToActor (), assertReceived 10]]
 
     it "throws error on failure" $ do
-      assertRootActorFails logger evBus
-        (\ (_ :: () -> IO ()) -> do
-          actorKey "failing-actor"
-          failingActor)
-        [ (GenericEvent (), Nothing) ]
-        (ErrorCall "fail!")
+      testActorSystem logger evBus
+        (\(_ :: () -> IO ()) -> failingActor)
+        [ [emitToActor (), expectError (ErrorCall "fail!")] ]
 
   describe "dynamic child" $ do
     it "can receive emitted events" $ do
       let input = 777 :: Int
 
-      assertActorReceives logger evBus
-          (\ assertOutput -> do
-              preStart $ do
-                return (InitOk ())
+      testActorSystem logger evBus
+          (\(sendToAssertReceived :: Int -> IO ()) -> do
+              preStart $ return $ InitOk ()
               receive $ \() ->
                 spawnChild "single-type" $ do
                   preStart $ return (InitOk ())
-                  singleTypeActor  assertOutput)
-          [ (GenericEvent (), Nothing)
-          , (GenericEvent input, Just ("should receive event", (== input)))]
+                  singleTypeActor sendToAssertReceived)
+          [ [emitToActor ()]
+          , [emitToActor input, assertReceived input] ]
 
 
   describe "static child" $ do
@@ -155,115 +90,102 @@ actorSpec logger evBus = do
     it "can receive emitted events" $ do
       let input = 777 :: Int
 
-      assertActorReceives logger evBus
-          (\ assertOutput -> do
-              preStart $ do
-                return (InitOk ())
-              addChild "single-type" $ do
-                singleTypeActor  assertOutput)
-          [(GenericEvent input, Just ("should receive event", (== input)))]
+      testActorSystem logger evBus
+          (\ sendToAssertReceived -> do
+              preStart $ return $ InitOk ()
+              addChild "single-type" $
+                singleTypeActor sendToAssertReceived)
+          [ [emitToActor input, assertReceived input] ]
 
     it "can receive events of multiple types on children" $ do
       let leftInput = 777 :: Int
           rightInput = "555" :: String
 
-      assertActorReceives logger evBus
-        (\ assertOutput -> do
-            preStart $ do
-              return (InitOk ())
+      testActorSystem logger evBus
+        (\sendToAssertReceived -> do
+            preStart $ return $ InitOk ()
 
             addChild "left-type" $ do
-              preStart $ return (InitOk ())
-              receive (liftIO . assertOutput . Left)
+              preStart $ return $ InitOk ()
+              receive (liftIO . sendToAssertReceived . Left)
 
             addChild "right-type" $ do
-              preStart $ return (InitOk ())
-              receive (liftIO . assertOutput . Right))
+              preStart $ return $ InitOk ()
+              receive (liftIO . sendToAssertReceived . Right))
 
-        [ ( GenericEvent leftInput
-          , Just ("child should receive event", (== Left leftInput)))
-
-        , ( GenericEvent rightInput
-          , Just ("child should receive event", (== Right rightInput)))
+        [ [ emitToActor leftInput, assertReceived (Left leftInput) ]
+        , [ emitToActor rightInput, assertReceived (Right rightInput) ]
         ]
 
     it "can handle a state" $ do
-      assertActorReceives logger evBus
-        (\ assertOutput -> do
-            preStart $ do
-              return $ InitOk ()
-
+      testActorSystem logger evBus
+        (\sendToAssertReceived -> do
+            preStart $ return $ InitOk ()
             addChild "child-with-state" $ do
-              simpleStateActor  assertOutput)
+              simpleStateActor sendToAssertReceived)
+        [ [ emitToActor (1 :: Int) ]
+        , [ emitToActor (), assertReceived (1 :: Int) ]
+        , [ emitToActor (9 :: Int) ]
+        , [ emitToActor (), assertReceived (10 :: Int) ]]
 
-        [ (GenericEvent (1 :: Int), Nothing)
-        , (GenericEvent (), Just ("state should be consistent", (== (1 :: Int))))
-        , (GenericEvent (9 :: Int), Nothing)
-        , (GenericEvent (), Just ("state should be consistent", (== (10 :: Int)))) ]
 
     describe "on error" $ do
-
       describe "with raise directive" $ do
         it "raises the error" $ do
-          let assertion =
-                assertActorReceives logger evBus
-                  (\ assertOutput -> do
-                    preStart $ do
-                      return $ InitOk ()
-                    addChild "failing-actor" $ do
-                      preStart $ return $ InitOk ()
-                      onError $ \(_ :: ErrorCall) -> return Raise
-                      receive $ \(ev :: String) -> liftIO $ assertOutput ev
-                      failingActor)
-                  [ (GenericEvent (), Nothing)
-                  , ( GenericEvent "foo", Just ("should receive event", (== "foo")) )]
-
-          assertion `shouldThrow` errorCall "fail!"
+          testActorSystem logger evBus
+             (\sendToAssertReceived -> do
+                 onError $ \(_ :: ErrorCall) -> return Raise
+                 preStart $ return $ InitOk ()
+                 addChild "failing-actor" $ do
+                   onError $ \(_ :: ErrorCall) -> return Raise
+                   preStart $ return $ InitOk ()
+                   receive $ \(ev :: String) -> liftIO $ sendToAssertReceived ev
+                   failingActor)
+             [ [emitToActor "foo", assertReceived "foo"]
+             , [emitToActor ()]
+             , [delay (seconds 1), expectError (ErrorCall "fail!")] ]
 
       describe "with resume directive" $ do
         it "ignores error" $ do
-          assertActorReceives logger evBus
-            (\ assertOutput -> do
-              preStart $ do
-                return $ InitOk ()
+          testActorSystem logger evBus
+            (\ sendToAssertReceived -> do
+              preStart $ return $ InitOk ()
               addChild "failing-actor" $ do
                 onError $ \(_ :: ErrorCall) -> return Resume
-                receive $ \(ev :: String) -> liftIO $ assertOutput ev
+                receive $ \(ev :: String) -> liftIO $ sendToAssertReceived ev
                 failingActor)
-            [ ( GenericEvent (), Nothing )
-            , ( GenericEvent "foo", Just ("should receive event", (== "foo")) ) ]
+            [ [ emitToActor () ]
+            , [ emitToActor "foo", assertReceived "foo"] ]
 
       describe "with stop directive" $ do
         it "stops failing actor" $ do
           let input = 123 :: Int
-          assertActorReceives logger evBus
-            (\ assertOutput -> do
+          testActorSystem logger evBus
+            (\ sendToAssertReceived -> do
               preStart $ do
                 return $ InitOk ()
 
               addChild "single-child" $ do
                 backoff . const $ seconds 0
-                singleTypeActor  (assertOutput . Left)
+                singleTypeActor  (sendToAssertReceived . Left)
 
               addChild "failing-actor" $ do
                 backoff . const $ seconds 0
                 onError $ \(_ :: ErrorCall) -> return Stop
-                receive $ \(ev :: String) -> liftIO . assertOutput $ Right ev
+                receive $ \(ev :: String) -> liftIO . sendToAssertReceived $ Right ev
                 failingActor)
-            [ ( GenericEvent (), Nothing)
-            , ( GenericEvent "foo", Nothing)
+            [ [ emitToActor () ]
+            , [ emitToActor "foo" ]
             -- if stopped actor would still be alive, this would
             -- return a Right instead of a Left
-            , ( GenericEvent input
-              , Just ("should receive event of non stopped actor"
-                     , (== Left input))) ]
+            , [ emitToActor input, assertReceived (Left input) ] ]
 
       describe "with restart directive" $ do
 
         describe "with OneForOne strategy" $ do
           it "calls preRestart once" $ do
-            assertActorReceives logger evBus
-              (\ assertOutput -> do
+            testActorSystem logger evBus
+              (\ sendToAssertReceived -> do
                 backoff (const $ seconds 0)
 
                 preStart $ do
@@ -271,14 +193,15 @@ actorSpec logger evBus = do
 
                 addChild "failing-actor" $ do
                   preRestart $ \_err _ev ->
-                    liftIO $ assertOutput True
+                    liftIO $ sendToAssertReceived True
+
                   onError $ \(_ :: ErrorCall) -> return Restart
                   failingActor)
-              [ (GenericEvent (), Just ("should call preRestart", id)) ]
+              [ [ emitToActor (), assertReceived True ] ]
 
           it "calls postRestart once" $ do
-            assertActorReceives logger evBus
-              (\ assertOutput -> do
+            testActorSystem logger evBus
+              (\ sendToAssertReceived -> do
                 backoff (const $ seconds 0)
 
                 preStart $ do
@@ -286,17 +209,17 @@ actorSpec logger evBus = do
 
                 addChild "failing-actor" $ do
                   postRestart $ \_err _ev -> do
-                    liftIO $ assertOutput True
+                    liftIO $ sendToAssertReceived True
                     return $ InitOk ()
                   onError $ \(_ :: ErrorCall) -> return Restart
                   failingActor)
-              [ (GenericEvent (), Just ("should call postRestart", id)) ]
+              [ [ emitToActor (), assertReceived True ] ]
 
         describe "with AllForOne strategy" $ do
           it "calls preRestart for each actor" $ do
             let validValues = ["one", "two"]
-            assertActorReceives logger evBus
-              (\ assertOutput -> do
+            testActorSystem logger evBus
+              (\ sendToAssertReceived -> do
                 strategy AllForOne
                 backoff (const $ seconds 0)
 
@@ -306,60 +229,83 @@ actorSpec logger evBus = do
                 addChild "one" $ do
                   preStart . return $ InitOk ()
                   preRestart $ \_err _ev ->
-                    liftIO $ assertOutput "one"
+                    liftIO $ sendToAssertReceived "one"
+
                 addChild "two" $ do
                   preStart . return $ InitOk ()
                   preRestart $ \_err _ev ->
-                    liftIO $ assertOutput "two"
+                    liftIO $ sendToAssertReceived "two"
                   onError $ \(_ :: ErrorCall) -> return Restart
                   failingActor)
-              [ ( GenericEvent ()
-                , Just ("should call preRestart", (`elem` validValues)))
-              , (GenericEvent "ignored"
-                , Just ("should call preRestart", (`elem` validValues))) ]
+
+              [ [ emitToActor ()
+                , assertReceivedIn (`elem` validValues)
+                , assertReceivedIn (`elem` validValues ) ] ]
 
           it "calls postRestart for each actor" $ do
             let validValues = ["one", "two"]
-            assertActorReceives logger evBus
-              (\ assertOutput -> do
+            testActorSystem logger evBus
+              (\ sendToAssertReceived -> do
                 strategy AllForOne
                 backoff (const $ seconds 0)
 
-                preStart $ do
-                  return $ InitOk ()
+                preStart $ return $ InitOk ()
 
                 addChild "one" $ do
                   preStart . return $ InitOk ()
                   postRestart $ \_err _ev -> do
-                    liftIO $ assertOutput "one"
+                    liftIO $ sendToAssertReceived "one"
                     return $ InitOk ()
 
                 addChild "two" $ do
+                  onError $ \(_ :: ErrorCall) -> return Restart
                   preStart . return $ InitOk ()
                   postRestart $ \_err _ev -> do
-                    liftIO $ assertOutput "two"
+                    liftIO $ sendToAssertReceived "two"
                     return $ InitOk ()
-                  onError $ \(_ :: ErrorCall) -> return Restart
                   failingActor)
-              [ ( GenericEvent ()
-                , Just ("should call postRestart", (`elem` validValues)))
-              , (GenericEvent ()
-                , Just ("should call postRestart", (`elem` validValues))) ]
 
+              [ [ emitToActor ()
+                , assertReceivedIn (`elem` validValues)
+                , assertReceivedIn (`elem` validValues) ] ]
 
+  describe "grandchildren failure" $ do
+    describe "with restart directive on grandparent & raise directive on parent" $ do
+      it "restarts child & grandchild when grandchild's handler fails" $ do
+        testActorSystem logger evBus
+          (\(sendToAssertReceived :: String -> IO ()) -> do
+            strategy AllForOne
+            backoff . const $ seconds 0
+            preStart $ return $ InitOk ()
+
+            addChild "child" $ do
+              backoff . const $ seconds 0
+              preStart $ return $ InitOk ()
+              preRestart $ \_err _ev -> do
+                liftIO $ sendToAssertReceived "on child prerestart"
+              postRestart $ \_err _ev -> do
+                return $ InitOk ()
+
+              addChild "grandchild" $ do
+                onError $ \(_ :: ErrorCall) -> return Raise
+                preStart $ return $ InitOk ()
+                receive (\() -> error "fail!")
+                receive $ \(msg :: String) -> liftIO $ sendToAssertReceived msg)
+
+          [ [emitToActor "Hello", assertReceived "Hello"]
+          , [emitToActor (), assertReceived "on child prerestart"]
+          , [emitToActor "World", assertReceived "World"] ]
   where
-    singleTypeActor  assertOutput = do
-      preStart $ do
-        return (InitOk ())
+    singleTypeActor sendToAssertReceived = do
+      preStart $ return $ InitOk ()
       stopDelay (seconds 0)
-      receive (liftIO . assertOutput)
+      receive (liftIO . sendToAssertReceived)
 
-    simpleStateActor  assertOutput = do
-      preStart $ do
-        return $ InitOk 0
+    simpleStateActor sendToAssertReceived = do
+      preStart $ return $ InitOk (0 :: Int)
       stopDelay (seconds 0)
       receive $ \n  -> modifyState (+n)
-      receive $ \() -> getState >>= liftIO . assertOutput
+      receive $ \() -> getState >>= liftIO . sendToAssertReceived
 
 failingActor :: ActorBuilder ()
 failingActor = do

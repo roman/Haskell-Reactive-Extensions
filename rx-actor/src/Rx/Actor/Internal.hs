@@ -6,10 +6,11 @@ module Rx.Actor.Internal where
 import Control.Applicative ((<$>), (<*>))
 
 import Control.Monad (forM_, void, when)
+import Control.Monad.Trans (liftIO)
 
 import Control.Exception (SomeException(..), fromException, try, throwIO, catch)
-import Control.Concurrent (yield)
-import Control.Concurrent.Async (asyncThreadId, cancel, link, wait)
+import Control.Concurrent (myThreadId, yield)
+import Control.Concurrent.Async (cancel, link, wait)
 import Control.Concurrent.MVar (MVar, newEmptyMVar, takeMVar, putMVar)
 import Control.Concurrent.STM ( TChan, TVar
                               , atomically, orElse
@@ -106,69 +107,71 @@ spawnActor :: StartStrategy
            -> TChan SupervisorEvent
            -> IO Actor
 spawnActor strategy parent logger evBus children gevQueue childQueue supQueue =
-  case _startStrategyActorDef strategy of
-    gActorDef@(GenericActorDef actorDef) -> do
-      let absoluteKey = case parent of
-                          Nothing -> "/user"
-                          Just p  -> toActorKey p  ++ "/" ++ toActorKey actorDef
+    case _startStrategyActorDef strategy of
+      gActorDef@(GenericActorDef actorDef) -> do
+        let absoluteKey = case parent of
+                            Nothing -> "/user"
+                            Just p  -> toActorKey p  ++ "/" ++ toActorKey actorDef
 
-      actorVar        <- newEmptyMVar
-      actorDisposable <- newCompositeDisposable
+        actorVar        <- newEmptyMVar
+        actorDisposable <- newCompositeDisposable
 
-      actorAsync <-
-        _actorForker actorDef $
-          initActor strategy parent actorDef actorVar actorDisposable
-
-      -- GHC debugging
-      labelThread (asyncThreadId actorAsync) absoluteKey
-
-      let actor = Actor {
-          _actorAbsoluteKey    = absoluteKey
-        , _actorAsync          = actorAsync
-        , _actorGenericEvQueue = gevQueue
-        , _actorChildEvQueue   = childQueue
-        , _actorSupEvQueue     = supQueue
-        , _actorDisposable     = toDisposable actorDisposable
-        , _actorDef            = gActorDef
-        , _actorEventBus       = evBus
-        , _actorLogger         = logger
-        , _actorChildren       = children
-        }
+        actorAsync <-
+          _actorForker actorDef $ do
+            -- GHC debugging
+            myThreadId >>= (`labelThread` absoluteKey)
+            initActor strategy parent actorDef actorVar actorDisposable
 
 
-      putMVar actorVar actor
-      yield
+        let actor = Actor {
+            _actorAbsoluteKey    = absoluteKey
+          , _actorAsync          = actorAsync
+          , _actorGenericEvQueue = gevQueue
+          , _actorChildEvQueue   = childQueue
+          , _actorSupEvQueue     = supQueue
+          , _actorDisposable     = toDisposable actorDisposable
+          , _actorDef            = gActorDef
+          , _actorEventBus       = evBus
+          , _actorLogger         = logger
+          , _actorChildren       = children
+          }
 
-      case parent of
-        Nothing -> link actorAsync
-        Just _ -> return ()
 
-      -- IMPORTANT: The disposable creation/append has to be done
-      -- after the actor thread starts. Please do not move it
-      -- before that
-      asyncDisposable <- createDisposable $ do
+        putMVar actorVar actor
+        yield
 
-        loudF logger
-              "[{}] Calling actor disposable" $
-              maybe (Only absoluteKey) (const $ Only $ toActorKey actor) parent
 
-        sendChildEventToActor actor ActorStopped
-        threadDelay $ _actorStopDelay actorDef
-        cancel actorAsync
+        -- IMPORTANT: The disposable creation/append has to be done
+        -- after the actor thread starts. Please do not move it
+        -- before that
+        asyncDisposable <- createDisposable $ do
 
-      -- create eventBus subscription disposable
-      eventBusDisposable <-
+          loudF logger
+                "[{}] Calling actor disposable" $
+                maybe (Only absoluteKey) (const $ Only $ toActorKey actor) parent
+
+          sendChildEventToActor actor ActorStopped
+          threadDelay $ _actorStopDelay actorDef
+          cancel actorAsync
+
+        -- create eventBus subscription disposable
+        eventBusDisposable <-
+          case parent of
+            Just _ -> emptyDisposable
+            Nothing -> do
+              subscribe (toAsyncObservable evBus)
+                            (atomically . writeTChan gevQueue)
+                            throwOnError
+                            (return ())
+
+        Disposable.append asyncDisposable actorDisposable
+        Disposable.append eventBusDisposable actorDisposable
+
         case parent of
-          Just _ -> emptyDisposable
-          Nothing -> do
-            subscribe (toAsyncObservable evBus)
-                          (atomically . writeTChan gevQueue)
-                          throwOnError
-                          (return ())
+          Nothing -> link $ _actorAsync actor
+          Just _ -> return ()
 
-      Disposable.append asyncDisposable actorDisposable
-      Disposable.append eventBusDisposable actorDisposable
-      return actor
+        return actor
   where
     throwOnError err =
       case fromException err of
@@ -298,10 +301,10 @@ startActorLoop mparent actorDef actor st0 = do
               let errMsg = "Unhandled SupervisorEvent received " ++ show err
               runActorCtx $ Logger.warn errMsg
             Nothing -> do
-              let errMsg = "Actor loop observable received non-supervisor error"
+              let errMsg = "Actor loop received non-supervisor error "
                            ++ show serr
               runActorCtx $ Logger.warn errMsg
-              throwIO serr
+              throwIO err0
         Just parent ->
           case fromException serr of
             Just err -> sendSupEventToActor parent err
@@ -386,7 +389,7 @@ handleGenericEvent actorDef actor st gev = do
 
   void
     $ execActor
-    $ Logger.noisyF "[evType: {}] actor receiving event"
+    $ Logger.noisyF "[evType: {}] Receiving event"
                     (Only evType)
 
   sendGenericEvToChildren actor gev
@@ -397,7 +400,7 @@ handleGenericEvent actorDef actor st gev = do
         result <-
           try
             $ execActor
-            $ do Logger.loudF "[evType: {}] actor handling event"
+            $ do Logger.loudF "[evType: {}] Handling event"
                               (Only evType)
                  unsafeCoerce $ handler (fromJust $ fromGenericEvent gev)
         case result of
@@ -414,8 +417,8 @@ handleActorLoopError actorDef actor err@(SomeException innerErr) st gev = do
   let runActorCtx = evalReadOnlyActorM st actor
 
   runActorCtx $
-    Logger.noisyF "Received error on {}: {}"
-                  (toActorKey actorDef, show err)
+    Logger.traceF "Catched error: '{} {}'"
+                  (show $ typeOf innerErr , show err)
 
   let errType = show $ typeOf innerErr
       restartDirectives = _actorRestartDirective actorDef
@@ -425,21 +428,26 @@ handleActorLoopError actorDef actor err@(SomeException innerErr) st gev = do
     Just (ErrorHandler errHandler) -> do
       restartDirective <-
         runActorCtx $ unsafeCoerce $ errHandler (fromJust $ fromException err)
+      runActorCtx $
+        Logger.traceF "Use restart directive '{}'"
+                      (Only $ show restartDirective)
       case restartDirective of
         Resume -> do
           runActorCtx
-            $ Logger.noisyF "[error: {}] Resume actor" (Only $ show err)
+            $ Logger.noisyF "[error: {} {}] Resume actor" (show $ typeOf err, show err)
           return st
         Stop -> do
           stopChildren actor
           void $ runActorCtx $ do
-            Logger.noisyF "[error: {}] Stop actor" (Only $ show err)
+            Logger.noisyF "[error: {} {}] Stop actor" (show $ typeOf err, show err)
             unsafeCoerce $ _actorPostStop actorDef
           stopActorLoop actorDef
-        _ -> do
-          runActorCtx $
-            Logger.noisyF "[error: {}] Send error to supervisor"
-                          (Only $ show err)
+        Raise
+          | _actorAbsoluteKey actor == "/user" -> do
+            runActorCtx $
+              Logger.loudF "Raise in root actor, throwing error {}" (Only $ show err)
+            throwIO err
+        _ ->
           stopActorLoopAndRaise restartDirective actorDef actor err st gev
 
 ---
@@ -474,22 +482,10 @@ stopActorLoopAndRaise restartDirective actorDef actor err st gev = do
           | _actorAbsoluteKey actor /= failingActorKey ->
               _actorPreRestart actorDef err gev
           | otherwise -> return ()
+        Raise -> liftIO $ throwIO err
         _ -> return ()
-      -- then
-      -- -- NOTE: This statement gets called twice, once for a Restart
-      -- -- action, and when using a OneForAll strategy, it gets called
-      -- -- again for the same error using RestartOne
-      -- else when (restartDirective == RestartOne) $ do
-      --   Logger.trace ("Calling preRestart on actor" :: String)
-      --   _actorPreRestart actorDef err gev
-      -- -- else when (restartDirective == Restart) $ do
-      -- --   Logger.trace ("Calling preRestart on actor" :: String)
-      -- --   _actorPreRestart actorDef err gev
-      -- -- else do
-      -- --   Logger.trace ("Calling preRestart on actor" :: String)
-      -- --   _actorPreRestart actorDef err gev
 
-  runActorCtx $ Logger.noisy ("Notify parent to restart actor" :: String)
+  runActorCtx $ Logger.noisy ("Notify parent to deal with error" :: String)
   throwIO
     ActorFailedWithError {
             _supEvTerminatedState = st

@@ -131,6 +131,7 @@ addChild key actorBuilder = do
 
 --------------------------------------------------------------------------------
 
+defActor :: ActorBuilder st -> ActorDef st
 defActor = evalActorBuilder
 
 evalActorBuilder :: ActorBuilder st -> ActorDef st
