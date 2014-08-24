@@ -61,11 +61,6 @@ instance Functor (ActorBuilderF st) where
 
 type ActorBuilder st = Free (ActorBuilderF st) ()
 
--- $setup
--- >>> import Control.Concurrent.MVar
--- >>> import Control.Exception (ErrorCall(..), toException)
--- >>> let err = toException $ ErrorCall "test"
-
 --------------------------------------------------------------------------------
 
 actorKey :: String -> ActorBuilder st
@@ -79,23 +74,9 @@ actorKey key =
 startDelay :: TimeInterval -> ActorBuilder st
 startDelay delay = liftF $ SetStartDelayI delay ()
 
--- |
--- Example:
---
--- >>> let actorDef = evalActorBuilder $ preStart (return $ InitOk 0)
--- >>> _actorPreStart actorDef
--- InitOk 0
 preStart :: PreActorM (InitResult st) -> ActorBuilder st
 preStart action = liftF $ PreStartI action ()
 
--- |
--- Example:
---
--- >>> result <- newEmptyMVar :: IO (MVar String)
--- >>> let actorDef = evalActorBuilder $ postStop (putMVar result "STOPPED")
--- >>> _actorPostStop actorDef
--- >>> takeMVar result
--- "STOPPED"
 postStop :: (RO_ActorM st ()) -> ActorBuilder st
 postStop action = liftF $ PostStopI action ()
 
@@ -103,27 +84,11 @@ postStop action = liftF $ PostStopI action ()
 stopDelay :: TimeInterval -> ActorBuilder st
 stopDelay interval = liftF $ StopDelayI interval ()
 
--- |
--- Example:
---
--- >>> result <- newEmptyMVar :: IO (MVar Int)
--- >>> let actorDef = evalActorBuilder $ preRestart (\st _ -> putMVar result st)
--- >>> _actorPreRestart actorDef 777 err
--- >>> takeMVar result
--- 777
 preRestart
   :: (SomeException -> GenericEvent -> RO_ActorM st ())
   -> ActorBuilder st
 preRestart action = liftF $ PreRestartI action ()
 
--- |
--- Example:
---
--- >>> result <- newEmptyMVar :: IO (MVar Int)
--- >>> let actorDef = evalActorBuilder $ postRestart (\st _ -> putMVar result st)
--- >>> _actorPostRestart actorDef 777 err
--- >>> takeMVar result
--- 777
 postRestart
   :: (SomeException -> GenericEvent -> RO_ActorM st (InitResult st))
   -> ActorBuilder st

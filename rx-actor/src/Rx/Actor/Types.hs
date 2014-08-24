@@ -1,6 +1,5 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE DeriveDataTypeable #-}
@@ -90,13 +89,14 @@ data RestartDirective
   | Resume
   | Raise
   | Restart
-  | RestartOne
+  | RestartOne { _restartDirectiveFailedActorKey :: !ActorKey }
   deriving (Show, Eq, Ord, Typeable)
 
 data ChildEvent
   = ActorRestarted
-    { _ctrlEvError       :: !SomeException
-    , _ctlrEvFailedEvent :: !GenericEvent }
+    { _ctrlEvFailedActorKey :: !ActorKey
+    , _ctrlEvError          :: !SomeException
+    , _ctlrEvFailedEvent    :: !GenericEvent }
   | ActorStopped
   deriving (Typeable)
 

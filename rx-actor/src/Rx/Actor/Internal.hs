@@ -7,14 +7,17 @@ import Control.Applicative ((<$>), (<*>))
 
 import Control.Monad (forM_, void, when)
 
-import Control.Exception (SomeException(..), fromException, try, throwIO)
+import Control.Exception (SomeException(..), fromException, try, throwIO, catch)
 import Control.Concurrent (yield)
-import Control.Concurrent.Async (cancel, link, wait)
+import Control.Concurrent.Async (asyncThreadId, cancel, link, wait)
 import Control.Concurrent.MVar (MVar, newEmptyMVar, takeMVar, putMVar)
 import Control.Concurrent.STM ( TChan, TVar
                               , atomically, orElse
                               , newTVarIO, modifyTVar, readTVar
                               , newTChanIO, writeTChan, readTChan )
+
+import GHC.Conc (labelThread)
+
 import Data.Maybe (fromJust)
 import Data.Typeable (typeOf)
 
@@ -32,7 +35,7 @@ import Rx.Disposable ( Disposable, CompositeDisposable
 import qualified Rx.Observable as Observable
 import qualified Rx.Disposable as Disposable
 
-import Rx.Logger (Logger, loudF, Only(..))
+import Rx.Logger (Logger, traceF, loudF, Only(..))
 import qualified Rx.Logger.Monad as Logger
 
 -- NOTE: If using evalActorM, for some reason it throws
@@ -68,7 +71,12 @@ stopRootActor = (`sendChildEventToActor` ActorStopped)
 
 joinRootActor :: Actor -> IO ()
 joinRootActor actor = do
-  wait $ _actorAsync actor
+  wait (_actorAsync actor)
+    `catch` (\(err :: SomeException) -> do
+                traceF (_actorLogger actor)
+                       "Received error '{} {}' on root actor"
+                       (show $ typeOf err, show err)
+                throwIO err)
 
 
 -------------------- * Child Creation functions * --------------------
@@ -111,6 +119,8 @@ spawnActor strategy parent logger evBus children gevQueue childQueue supQueue =
         _actorForker actorDef $
           initActor strategy parent actorDef actorVar actorDisposable
 
+      -- GHC debugging
+      labelThread (asyncThreadId actorAsync) absoluteKey
 
       let actor = Actor {
           _actorAbsoluteKey    = absoluteKey
@@ -137,16 +147,10 @@ spawnActor strategy parent logger evBus children gevQueue childQueue supQueue =
       -- after the actor thread starts. Please do not move it
       -- before that
       asyncDisposable <- createDisposable $ do
-        case parent of
-          Just _ ->
-            loudF logger
-                  "[{}] actor disposable called"
-                  (Only $ toActorKey actor)
 
-          Nothing ->
-            loudF logger
-                  "[{}] actor disposable called"
-                  (Only absoluteKey)
+        loudF logger
+              "[{}] Calling actor disposable" $
+              maybe (Only absoluteKey) (const $ Only $ toActorKey actor) parent
 
         sendChildEventToActor actor ActorStopped
         threadDelay $ _actorStopDelay actorDef
@@ -203,12 +207,24 @@ initActor strategy parent actorDef actorVar actorDisposable = do
 
 ---
 
+startNewChildren :: forall st . ActorDef st -> Actor -> IO ()
+startNewChildren actorDef actor = do
+  let children = _actorChildrenDef actorDef
+      execActor = runPreActorM actor
+
+  execActor $ Logger.loudF "Starting actor children: {}"
+                           (Only $ show children)
+  forM_ children $ \gChildActorDef -> do
+    _child <- startChildActor (ViaPreStart gChildActorDef) actor
+    return ()
+
+
 newActor :: forall st . Maybe ParentActor -> ActorDef st -> Actor -> IO Disposable
 newActor parent actorDef actor = do
     eResult <-
       try
         $ runPreActorM actor
-                       (do Logger.loud ("Calling preStart on actor" :: String)
+                       (do Logger.trace ("Calling preStart on actor" :: String)
                            _actorPreStart actorDef)
     case eResult of
       Left err ->
@@ -219,18 +235,8 @@ newActor parent actorDef actor = do
           InitFailure err ->
             sendActorInitErrorToSupervisor actor err
           InitOk st -> do
-            startNewChildren
+            startNewChildren actorDef actor
             startActorLoop parent actorDef actor st
-  where
-    startNewChildren = do
-      let children = _actorChildrenDef actorDef
-          execActor = runPreActorM actor
-
-      execActor $ Logger.loudF "Starting actor children: {}"
-                               (Only $ show children)
-      forM_ children $ \gChildActorDef -> do
-        _child <- startChildActor (ViaPreStart gChildActorDef) actor
-        return ()
 
 ---
 
@@ -241,11 +247,16 @@ restartActor parent actorDef actor oldSt err gev = do
   result <-
     logError $
        evalReadOnlyActorM oldSt actor
-                          (unsafeCoerce $ _actorPostRestart actorDef err gev)
+                          (do Logger.trace ("Calling postRestart on actor" :: String)
+                              unsafeCoerce $ _actorPostRestart actorDef err gev)
   case result of
     -- TODO: Do a warning with the error
-    Nothing -> startActorLoop parent actorDef actor oldSt
-    Just (InitOk newSt) -> startActorLoop parent actorDef actor newSt
+    Nothing -> do
+      startNewChildren actorDef actor
+      startActorLoop parent actorDef actor oldSt
+    Just (InitOk newSt) -> do
+      startNewChildren actorDef actor
+      startActorLoop parent actorDef actor newSt
     Just (InitFailure initErr) ->
       sendActorInitErrorToSupervisor actor initErr
 
@@ -274,7 +285,7 @@ startActorLoop mparent actorDef actor st0 = do
       _actorEventBusDecorator actorDef $
       Observable.repeat (getEventFromQueue actor)
 
-    handleActorObservableError serr = do
+    handleActorObservableError serr@(SomeException err0) = do
       let runActorCtx = evalReadOnlyActorM st0 actor
       case mparent of
         Nothing ->
@@ -296,7 +307,10 @@ startActorLoop mparent actorDef actor st0 = do
             Just err -> sendSupEventToActor parent err
             Nothing -> do
               let errMsg =
-                    "Arrived to unhandled error on actorLoop: " ++ show serr
+                    "Arrived to unhandled error on actorLoop: "
+                    ++ show (typeOf err0)
+                    ++ " "
+                    ++ show serr
               runActorCtx $ Logger.severe errMsg
               error errMsg
 
@@ -316,7 +330,8 @@ actorLoop ::
 actorLoop _ actorDef actor st (NormalEvent gev) =
   handleGenericEvent actorDef actor st gev
 
-actorLoop mParent actorDef actor st (ChildEvent (ActorRestarted err gev)) = do
+actorLoop mParent actorDef actor st
+          (ChildEvent (ActorRestarted failedActorKey err gev)) = do
   evalReadOnlyActorM st actor $
     case mParent of
       Just parent ->
@@ -326,16 +341,16 @@ actorLoop mParent actorDef actor st (ChildEvent (ActorRestarted err gev)) = do
         let errMsg = "The impossible happened: root actor was reseted"
         Logger.severe errMsg
         error errMsg
-  stopActorLoopAndRaise RestartOne actorDef actor err st gev
+  stopActorLoopAndRaise (RestartOne failedActorKey) actorDef actor err st gev
 
 actorLoop mParent actorDef actor st (ChildEvent ActorStopped) = do
   void $ evalReadOnlyActorM st actor $ do
     case mParent of
       Just parent ->
-        Logger.traceF "Stop actor from Parent {}"
+        Logger.traceF "Stop actor from parent {}"
                       (Only $ toActorKey parent)
       Nothing ->
-        Logger.trace ("Stop actor from user" :: String)
+        Logger.trace ("Stop root actor" :: String)
 
     unsafeCoerce $ _actorPostStop actorDef
 
@@ -448,9 +463,31 @@ stopActorLoopAndRaise restartDirective actorDef actor err st gev = do
   logError_
     $ runActorCtx
     $ unsafeCoerce
-    $ if restartDirective == Stop
-      then _actorPostStop actorDef
-      else _actorPreRestart actorDef err gev
+    $ case restartDirective of
+        Stop -> do
+          Logger.trace ("Calling postStop on actor" :: String)
+          _actorPostStop actorDef
+        Restart -> do
+          Logger.trace ("Calling preRestart on actor" :: String)
+          _actorPreRestart actorDef err gev
+        RestartOne failingActorKey
+          | _actorAbsoluteKey actor /= failingActorKey ->
+              _actorPreRestart actorDef err gev
+          | otherwise -> return ()
+        _ -> return ()
+      -- then
+      -- -- NOTE: This statement gets called twice, once for a Restart
+      -- -- action, and when using a OneForAll strategy, it gets called
+      -- -- again for the same error using RestartOne
+      -- else when (restartDirective == RestartOne) $ do
+      --   Logger.trace ("Calling preRestart on actor" :: String)
+      --   _actorPreRestart actorDef err gev
+      -- -- else when (restartDirective == Restart) $ do
+      -- --   Logger.trace ("Calling preRestart on actor" :: String)
+      -- --   _actorPreRestart actorDef err gev
+      -- -- else do
+      -- --   Logger.trace ("Calling preRestart on actor" :: String)
+      -- --   _actorPreRestart actorDef err gev
 
   runActorCtx $ Logger.noisy ("Notify parent to restart actor" :: String)
   throwIO
@@ -550,11 +587,12 @@ restartAllChildren
   -> GenericEvent -> SomeException
   -> IO ()
 restartAllChildren _actorDef actor _actorSt
-                        _failingActor _prevSt failedEv err = do
+                   failingActor _prevSt failedEv err = do
 
   children <- atomically $ readTVar $ _actorChildren actor
-  forM_ (HashMap.elems children) $ \otherChild -> do
-    sendChildEventToActor otherChild (ActorRestarted err failedEv)
+  forM_ (HashMap.elems children) $ \otherChild ->
+    sendChildEventToActor otherChild
+      $ ActorRestarted (_actorAbsoluteKey failingActor) err failedEv
 
 restartChildActor
   :: forall st childSt. ActorDef st -> Actor -> st
@@ -563,21 +601,26 @@ restartChildActor
   -> IO ()
 restartChildActor actorDef actor actorSt
                   child prevChildSt
-                  failedEv err directive = do
+                  failedEv serr@(SomeException err0) directive = do
   let runActorCtx = evalReadOnlyActorM actorSt actor
   case directive of
     Raise -> do
       runActorCtx $
-        Logger.noisyF "Raise error from child {}" (Only $ toActorKey child)
-      cleanupActorAndRaise actor actorSt err
-    RestartOne ->
-      restartSingleChild actorDef actor actorSt child prevChildSt failedEv err
+        Logger.traceF "Raised error '{} {}' from child {}"
+                      ( show $ typeOf err0, show err0, toActorKey child)
+      dispose child
+      unsafeCoerce $ handleActorLoopError actorDef actor serr actorSt failedEv
+    RestartOne _ ->
+      restartSingleChild actorDef actor actorSt child prevChildSt failedEv serr
     Restart -> do
+      runActorCtx $
+        Logger.traceF "Restart child {} from error '{} {}'"
+                     (toActorKey child, show $ typeOf err0, show err0)
       let restarter =
             case _actorSupervisorStrategy actorDef of
               OneForOne -> restartSingleChild
               AllForOne -> restartAllChildren
-      restarter actorDef actor actorSt child prevChildSt failedEv err
+      restarter actorDef actor actorSt child prevChildSt failedEv serr
     _ -> do
       let errMsg = "FATAL: Restart Actor procedure received " ++
                    "an unexpected directive " ++ show directive
@@ -601,9 +644,11 @@ removeChildActor actor actorSt child = do
       Logger.noisyF "Removing child {}" (Only childActorKey)
 
 cleanupActorAndRaise :: forall st. Actor -> st -> SomeException -> IO ()
-cleanupActorAndRaise actor actorSt err = do
+cleanupActorAndRaise actor actorSt serr@(SomeException err) = do
   let runActorCtx = evalReadOnlyActorM actorSt actor
-  runActorCtx $ Logger.noisyF "Failing with error '{}'" (Only $ show err)
+  runActorCtx
+    $ Logger.loudF "Failing with error '{} {}': performing cleanup of children"
+                   (show $ typeOf err, show serr)
   disposeChildren actor
   throwIO err
 
