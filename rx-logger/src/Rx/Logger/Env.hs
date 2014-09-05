@@ -5,12 +5,14 @@ module Rx.Logger.Env
        , setupLogTracerWithPrefix
        ) where
 
-import           Control.Monad      (liftM)
-import           Data.Maybe         (fromMaybe)
-import           Data.Monoid        (First (..), mconcat)
-import qualified Data.Text          as Text
-import           System.Environment (lookupEnv)
-import           System.IO          (stderr, stdout)
+import           Control.Concurrent.STM (TChan, atomically, dupTChan,
+                                         newTChanIO, readTChan, writeTChan)
+import           Control.Monad          (liftM)
+import           Data.Maybe             (fromMaybe)
+import           Data.Monoid            (First (..), mconcat)
+import qualified Data.Text              as Text
+import           System.Environment     (lookupEnv)
+import           System.IO              (stderr, stdout)
 
 
 import           Rx.Disposable (Disposable, emptyDisposable,
@@ -49,9 +51,18 @@ setupLogTracer :: (ToLogger logger)
              -> IO Disposable
 setupLogTracer settings logger = do
     levelFilter <- getLogLevelFilter
-    main $ Ob.filter (levelFilter . _logEntryLevel)
-         $ Ob.toAsyncObservable
-         $ toLogger logger
+    loggerChan  <- newTChanIO
+    let source =
+          Ob.filter (levelFilter . _logEntryLevel)
+            $ Ob.toAsyncObservable
+            $ toLogger logger
+
+    chanDisposable <-
+      Ob.subscribeOnNext
+            source
+            (atomically . writeTChan loggerChan)
+
+    main loggerChan chanDisposable
   where
     prefix = envPrefix settings
     entryF = envLogEntryFormatter settings
@@ -62,20 +73,31 @@ setupLogTracer settings logger = do
             parseLogLevel $ Text.pack logLevelStr
       return $ fromMaybe (>= TRACE) result
 
-    main loggerOb = do
+    main loggerChan chanDisposable = do
         allSubs <- newCompositeDisposable
-        setupHandleTrace >>= flip Disposable.append allSubs
-        setupFileTrace   >>= flip Disposable.append allSubs
+        Disposable.append chanDisposable allSubs
+
+
+        setupHandleTrace loggerChan >>=
+          flip Disposable.append allSubs
+
+        setupFileTrace loggerChan >>=
+          flip Disposable.append allSubs
+
         return $! Disposable.toDisposable allSubs
       where
-        setupFileTrace =
+        setupFileTrace loggerChan0 = do
+          loggerChan <- atomically $ dupTChan loggerChan
+          let loggerOb = Ob.toAsyncObservable loggerChan
           lookupEnv (prefix ++ "_TRACE_FILE")
               >>= maybe emptyDisposable
                         (\filepath -> do
                              tracerDisposable <- serializeToFile filepath entryF loggerOb
                              config logger $ "Log tracing on file " ++ filepath
                              return tracerDisposable)
-        setupHandleTrace = do
+        setupHandleTrace loggerOb = do
+          loggerChan <- atomically $ dupTChan loggerChan
+          let loggerOb = Ob.toAsyncObservable loggerChan
           -- NOTE: Can use either STDOUT or STDERR for logging
           results <- sequence [
               liftM (maybe Nothing (const $ Just stdout))
@@ -85,7 +107,6 @@ setupLogTracer settings logger = do
             ]
           case getFirst . mconcat . map First $ results of
             Just handle -> do
-              logLevelFilter <- getLogLevelFilter
               tracerDisposable <- serializeToHandle handle entryF loggerOb
               config logger $ "Log tracing on handle " ++ show handle
               return tracerDisposable
