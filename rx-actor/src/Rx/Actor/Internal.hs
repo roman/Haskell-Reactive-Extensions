@@ -1,25 +1,25 @@
+{-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE RecordWildCards     #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards #-}
 module Rx.Actor.Internal where
 
 import Control.Applicative ((<$>), (<*>))
 
-import Control.Monad (forM_, void, when)
+import Control.Monad       (forM_, void, when)
 import Control.Monad.Trans (liftIO)
 
-import Control.Exception (SomeException(..), fromException, try, throwIO, catch)
-import Control.Concurrent (myThreadId, yield)
+import Control.Concurrent       (myThreadId, yield)
 import Control.Concurrent.Async (cancel, link, wait)
-import Control.Concurrent.MVar (MVar, newEmptyMVar, takeMVar, putMVar)
-import Control.Concurrent.STM ( TChan, TVar
-                              , atomically, orElse
-                              , newTVarIO, modifyTVar, readTVar
-                              , newTChanIO, writeTChan, readTChan )
+import Control.Concurrent.MVar  (MVar, newEmptyMVar, putMVar, takeMVar)
+import Control.Concurrent.STM   (TChan, TVar, atomically, modifyTVar,
+                                 newTChanIO, newTVarIO, orElse, readTChan,
+                                 readTVar, writeTChan)
+import Control.Exception        (SomeException (..), catch, fromException,
+                                 throwIO, try)
 
 import GHC.Conc (labelThread)
 
-import Data.Maybe (fromJust)
+import Data.Maybe    (fromJust)
 import Data.Typeable (typeOf)
 
 import qualified Data.HashMap.Strict as HashMap
@@ -28,25 +28,24 @@ import Tiempo.Concurrent (threadDelay)
 
 import Unsafe.Coerce (unsafeCoerce)
 
-import Rx.Observable ( subscribe, scanLeftWithItemM, toAsyncObservable )
-import Rx.Disposable ( Disposable, CompositeDisposable
-                     , emptyDisposable, createDisposable, dispose
-                     , newCompositeDisposable, toDisposable )
+import Rx.Disposable (CompositeDisposable, Disposable, createDisposable,
+                      dispose, emptyDisposable, newCompositeDisposable,
+                      toDisposable)
+import Rx.Observable (scanLeftWithItemM, subscribe, toAsyncObservable)
 
-import qualified Rx.Observable as Observable
 import qualified Rx.Disposable as Disposable
+import qualified Rx.Observable as Observable
 
-import Rx.Logger (Logger, traceF, loudF, Only(..))
+import           Rx.Logger       (Logger, Only (..), loudF, traceF)
 import qualified Rx.Logger.Monad as Logger
 
 -- NOTE: If using evalActorM, for some reason it throws
 -- a segfault (really crazy behavior, drive with caution)
-import Rx.Actor.Monad ( execActorM, runPreActorM
-                      , evalReadOnlyActorM )
 import Rx.Actor.EventBus (fromGenericEvent, typeOfEvent)
-import Rx.Actor.Util (logError, logError_)
-import Rx.Actor.Logger ()
+import Rx.Actor.Logger   ()
+import Rx.Actor.Monad    (evalReadOnlyActorM, execActorM, runPreActorM)
 import Rx.Actor.Types
+import Rx.Actor.Util     (logError, logError_)
 
 --------------------------------------------------------------------------------
 
