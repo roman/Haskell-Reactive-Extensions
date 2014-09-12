@@ -45,9 +45,11 @@ library
   -- other-extensions:
   build-depends:
     base >=4.7 && <4.8,
+    async,
     containers,
     unordered-containers,
     stm,
+    stm-chans,
     time,
     tiempo,
 
