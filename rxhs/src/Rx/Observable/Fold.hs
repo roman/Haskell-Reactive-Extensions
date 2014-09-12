@@ -1,14 +1,15 @@
 module Rx.Observable.Fold where
 
+import Data.Monoid (Monoid(..))
 import Control.Concurrent.STM (atomically, newTVarIO, readTVar, writeTVar)
 import Rx.Observable.Types
 
-foldLeft :: IObservable observable
+foldLeftM :: IObservable observable
          => (acc -> a -> IO acc)
          -> acc
          -> observable s a
          -> Observable s acc
-foldLeft foldFn acc source =
+foldLeftM foldFn acc source =
   Observable $ \observer -> do
       accVar <- newTVarIO acc
       main accVar observer
@@ -24,3 +25,27 @@ foldLeft foldFn acc source =
             acc <- atomically $ readTVar accVar
             onNext observer acc
             onCompleted observer
+
+foldLeft :: IObservable observable
+         => (acc -> a -> acc)
+         -> acc
+         -> observable s a
+         -> Observable s acc
+foldLeft foldFn = foldLeftM (\acc a -> return $ foldFn acc a)
+
+
+
+foldMapM :: (IObservable source, Monoid b)
+        => (a -> IO b)
+        -> source s a
+        -> Observable s b
+foldMapM toMonoid = foldLeftM foldFn mempty
+  where
+    foldFn acc a = toMonoid a >>= return . (acc `mappend`)
+
+
+foldMap :: (IObservable source, Monoid b)
+        => (a -> b)
+        -> source s a
+        -> Observable s b
+foldMap fn = foldMapM (return . fn)
