@@ -28,4 +28,6 @@ toList source = do
 
 fromList :: Scheduler s -> [a] -> Observable s a
 fromList scheduler as = Observable $ \observer ->
-  schedule scheduler $ mapM_ (onNext observer) as
+  schedule scheduler $ do
+    mapM_ (onNext observer) as
+    onCompleted observer
