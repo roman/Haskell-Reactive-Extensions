@@ -32,7 +32,9 @@ module Rx.Observable
        , Observable.fromList
        , Observable.interval
        , Observable.map
+       , Observable.mapConcurrentlyM
        , Observable.mapM
+       , Observable.mapReduce
        , Observable.merge
        , Observable.mergeList
        , Observable.once
@@ -41,7 +43,9 @@ module Rx.Observable
        , Observable.repeatEvery
        , Observable.repeatEvery'
        , Observable.scanLeftM
+       , Observable.scanLeft
        , Observable.scanLeftWithItemM
+       , Observable.scanLeftWithItem
        , Observable.throttle
        , Observable.timeout
        , Observable.timeoutAfterFirst
@@ -58,23 +62,23 @@ module Rx.Observable
 import Control.Applicative (Applicative (..))
 import Control.Monad       (ap)
 
-import qualified Rx.Observable.Distinct as Observable
-import qualified Rx.Observable.Do       as Observable
-import qualified Rx.Observable.Error    as Observable
-import qualified Rx.Observable.Filter   as Observable
-import qualified Rx.Observable.First    as Observable
-import qualified Rx.Observable.Fold     as Observable
-import qualified Rx.Observable.Interval as Observable
-import qualified Rx.Observable.List     as Observable
-import qualified Rx.Observable.Maybe    as Observable
-import qualified Rx.Observable.Map      as Observable
-import qualified Rx.Observable.Merge    as Observable
-import qualified Rx.Observable.Repeat   as Observable
-import qualified Rx.Observable.Scan     as Observable
-import qualified Rx.Observable.Take     as Observable
-import qualified Rx.Observable.Take     as Observable
-import qualified Rx.Observable.Throttle as Observable
-import qualified Rx.Observable.Timeout  as Observable
+import qualified Rx.Observable.Distinct  as Observable
+import qualified Rx.Observable.Do        as Observable
+import qualified Rx.Observable.Error     as Observable
+import qualified Rx.Observable.Filter    as Observable
+import qualified Rx.Observable.First     as Observable
+import qualified Rx.Observable.Fold      as Observable
+import qualified Rx.Observable.Interval  as Observable
+import qualified Rx.Observable.List      as Observable
+import qualified Rx.Observable.Map       as Observable
+import qualified Rx.Observable.MapReduce as Observable
+import qualified Rx.Observable.Maybe     as Observable
+import qualified Rx.Observable.Merge     as Observable
+import qualified Rx.Observable.Repeat    as Observable
+import qualified Rx.Observable.Scan      as Observable
+import qualified Rx.Observable.Take      as Observable
+import qualified Rx.Observable.Throttle  as Observable
+import qualified Rx.Observable.Timeout   as Observable
 
 import Rx.Disposable (Disposable, dispose)
 import Rx.Scheduler  (Async, Scheduler, Sync, newThread, schedule)
