@@ -3,7 +3,7 @@
 
 name:                rx-logger
 version:             0.0.0.0
-synopsis:            Logger facilities with rxhs infrastructure
+synopsis:            Logger facilities using Reactive Extensions
 -- description:
 homepage:            http://github.com/HaskVan/rx-logger.git
 license:             MIT
@@ -45,8 +45,8 @@ library
     transformers,
     unordered-containers,
 
-    rx-disposable,
-    rxhs
+    rx-core,
+    rx-disposable
 
 executable example
   main-is: Main.hs
@@ -61,9 +61,9 @@ executable example
     text,
     text-format,
 
+    rx-core,
     rx-disposable,
-    rx-logger,
-    rxhs
+    rx-logger
 
 
 test-suite rx-logger-tests
@@ -83,8 +83,8 @@ test-suite rx-logger-tests
     transformers,
     unordered-containers,
 
+    rx-core,
     rx-disposable,
-    rxhs,
 
     hspec,
     HUnit

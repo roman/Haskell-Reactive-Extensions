@@ -25,9 +25,9 @@ library
     async,
     bytestring,
     streaming-commons,
-    rxhs,
+    rx-core,
     rx-disposable,
-    rx-schedulers
+    rx-scheduler
 
   hs-source-dirs:      src
   default-language:    Haskell2010
