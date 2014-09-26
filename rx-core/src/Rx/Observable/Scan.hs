@@ -1,63 +1,47 @@
 module Rx.Observable.Scan where
 
-import Control.Concurrent.STM (atomically, newTVarIO, readTVar, writeTVar)
+import Data.IORef (atomicModifyIORef', newIORef, readIORef)
 import Rx.Observable.Types
-
-scanLeftM :: IObservable source
-         => (acc -> a -> IO acc)
-         -> acc
-         -> source s a
-         -> Observable s acc
-scanLeftM foldFn acc0 source =
-  Observable $ \observer -> do
-      accVar <- newTVarIO acc0
-      main accVar observer
-    where
-      main accVar observer =
-          subscribe source onNext_ onError_ onCompleted_
-        where
-          onNext_ v = do
-            acc <- atomically $ readTVar accVar
-            acc' <- foldFn acc v
-            atomically $ writeTVar accVar acc'
-            onNext observer acc'
-          onError_ = onError observer
-          onCompleted_ = onCompleted observer
 
 scanLeft :: IObservable source
          => (acc -> a -> acc)
          -> acc
          -> source s a
          -> Observable s acc
-scanLeft foldFn = scanLeftM (\acc a -> return $ foldFn acc a)
-
-scanLeftWithItemM
-  :: IObservable source
-  => (acc -> a -> IO acc)
-  -> acc
-  -> source s a
-  -> Observable s (acc, a)
-scanLeftWithItemM foldFn acc0 source =
+scanLeft foldFn acc0 source =
   Observable $ \observer -> do
-      accVar <- newTVarIO acc0
+      accVar <- newIORef acc0
       main accVar observer
     where
       main accVar observer =
           subscribe source onNext_ onError_ onCompleted_
         where
           onNext_ v = do
-            acc <- atomically $ readTVar accVar
-            acc' <- foldFn acc v
-            atomically $ writeTVar accVar acc'
-            onNext observer (acc', v)
+            newAcc <- atomicModifyIORef' accVar $ \acc ->
+              let newAcc = foldFn acc v
+              in (newAcc, newAcc)
+            onNext observer newAcc
           onError_ = onError observer
           onCompleted_ = onCompleted observer
 
-
-scanLeftWithItem
+scanLeftItem
   :: IObservable source
   => (acc -> a -> acc)
   -> acc
   -> source s a
   -> Observable s (acc, a)
-scanLeftWithItem foldFn = scanLeftWithItemM (\acc a -> return $ foldFn acc a)
+scanLeftItem foldFn acc0 source =
+  Observable $ \observer -> do
+      accVar <- newIORef acc0
+      main accVar observer
+    where
+      main accVar observer =
+          subscribe source onNext_ onError_ onCompleted_
+        where
+          onNext_ v = do
+            newAcc <- atomicModifyIORef' accVar $ \acc ->
+              let newAcc = foldFn acc v
+              in (newAcc, newAcc)
+            onNext observer (newAcc, v)
+          onError_ = onError observer
+          onCompleted_ = onCompleted observer

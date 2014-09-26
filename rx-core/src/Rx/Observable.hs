@@ -47,10 +47,8 @@ module Rx.Observable
        , Observable.repeat'
        , Observable.repeatEvery
        , Observable.repeatEvery'
-       , Observable.scanLeftM
        , Observable.scanLeft
-       , Observable.scanLeftWithItemM
-       , Observable.scanLeftWithItem
+       , Observable.scanLeftItem
        , Observable.throttle
 
        , Observable.timeout
