@@ -1,90 +1,94 @@
 module Rx.Observable.Merge where
 
-import Control.Monad (forM, when)
+import Prelude hiding (mapM)
+
 import Control.Concurrent.STM (atomically)
-import Control.Concurrent.STM.TVar as TVar
+import Control.Concurrent.STM.TVar (modifyTVar, newTVarIO, readTVar, writeTVar)
+import Control.Monad (void, when)
 
-import Data.Unique (newUnique, hashUnique)
-import qualified Data.Set as Set
+import Data.Traversable (mapM)
+import Data.Unique (hashUnique, newUnique)
+import qualified Data.HashMap.Strict as HashMap
+import qualified Data.Set            as Set
 
-import Rx.Scheduler (Async)
-import Rx.Disposable ( newCompositeDisposable
-                     , newSingleAssignmentDisposable
-                     , emptyDisposable
-                     , dispose
-                     , toDisposable )
-
+import Rx.Disposable (createDisposable, dispose, emptyDisposable,
+                      newSingleAssignmentDisposable, toDisposable)
 import qualified Rx.Disposable as Disposable
+
+import Rx.Scheduler (Async, newThread)
+
 import Rx.Observable.Types
+import qualified Rx.Observable.List as Observable
 
 merge :: (IObservable source, IObservable observable)
       => source Async (observable Async a)
       -> Observable Async a
 merge obsSource = Observable $ \outerObserver -> do
-    sourceCompletedVar <- TVar.newTVarIO False
-    dispSetVar         <- TVar.newTVarIO $ Set.empty
-    sourceDisp         <- newSingleAssignmentDisposable
-    allDisposables     <- newCompositeDisposable
+    mainDisposable     <- newSingleAssignmentDisposable
+    sourceCompletedVar <- newTVarIO False
+    disposableMapVar   <- newTVarIO $ HashMap.empty
     main outerObserver
-         dispSetVar
-         allDisposables
+         mainDisposable
+         disposableMapVar
          sourceCompletedVar
-         sourceDisp
   where
     main outerObserver
-         dispSetVar
-         allDisposables
-         sourceCompletedVar
-         sourceDisp = do
+         mainDisposable
+         disposableMapVar
+         sourceCompletedVar = do
 
-        obsSourceDisp_ <-
+        innerDisposable <-
           subscribe obsSource onNextSource onErrorSource onCompletedSource
 
-        Disposable.set obsSourceDisp_ sourceDisp
-        Disposable.append (toDisposable sourceDisp) allDisposables
-        return $ toDisposable allDisposables
+        sourceDisposable <- createDisposable $ do
+          dispose innerDisposable
+          disposableMap <- atomically $ readTVar disposableMapVar
+          void $ mapM dispose disposableMap
+
+        Disposable.set sourceDisposable mainDisposable
+        return sourceDisposable
       where
         onNextSource source = do
-          subId <- hashUnique `fmap` newUnique
-          disp <- subscribe source onNext_ onError_ (onCompleted_ subId)
+          sourceId <- hashUnique `fmap` newUnique
+          sourceDisposable <-
+            subscribe source onNext_ onError_ (onCompleted_ sourceId)
 
-          Disposable.append disp allDisposables
-          atomically $ TVar.modifyTVar dispSetVar $ Set.insert subId
+          atomically $ modifyTVar disposableMapVar
+                     $ HashMap.insert sourceId sourceDisposable
 
         onErrorSource err = do
-          dispose allDisposables
+          dispose mainDisposable
           onError outerObserver err
 
-        onCompletedSource =
-          atomically $ TVar.writeTVar sourceCompletedVar True
+        onCompletedSource = do
+          shouldComplete <- atomically $ do
+            writeTVar sourceCompletedVar True
+            HashMap.null `fmap` readTVar disposableMapVar
+          when shouldComplete $ onCompleted outerObserver
 
         onNext_ = onNext outerObserver
 
         onError_ err = do
-          dispose allDisposables
+          dispose mainDisposable
           onError outerObserver err
 
-        onCompleted_ subId = do
-          shouldComplete <- atomically $ checkShouldComplete subId
+        onCompleted_ sourceId = do
+          shouldComplete <- atomically $ checkShouldComplete sourceId
           when shouldComplete $ onCompleted outerObserver
 
-        checkShouldComplete subId = do
-          dispSet         <- TVar.readTVar dispSetVar
-          sourceCompleted <- TVar.readTVar sourceCompletedVar
-          let dispSet' = Set.delete subId dispSet
-          if Set.null dispSet' && sourceCompleted
+        checkShouldComplete sourceId = do
+          disposableMap   <- readTVar disposableMapVar
+          sourceCompleted <- readTVar sourceCompletedVar
+          let disposableMap' = HashMap.delete sourceId disposableMap
+          if HashMap.null disposableMap' && sourceCompleted
              then return $ True
              else do
-               TVar.writeTVar dispSetVar dispSet'
+               writeTVar disposableMapVar disposableMap'
                return False
 
 mergeList
   :: (IObservable observable)
   => [observable Async a]
   -> Observable Async a
-mergeList sourceList = merge $ fromList sourceList
-  where
-    fromList xs =
-      Observable $ \observer -> do
-        mapM_ (onNext observer) xs
-        emptyDisposable
+mergeList sourceList =
+  merge $ Observable.fromList newThread sourceList
