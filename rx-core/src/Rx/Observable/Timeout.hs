@@ -1,52 +1,100 @@
 module Rx.Observable.Timeout where
 
+import Control.Exception (toException)
 import Control.Monad (when)
-import Control.Exception (toException, fromException)
-import Control.Concurrent.STM (atomically, newTVarIO, readTVar, writeTVar)
 
-import Data.Time (getCurrentTime, diffUTCTime)
+import Tiempo (TimeInterval, seconds)
 
-import Tiempo (TimeInterval, toNominalDiffTime)
-
-import Rx.Scheduler (Async, Scheduler, scheduleTimed, newThread)
-
-import Rx.Disposable ( dispose
-                     , newBooleanDisposable
-                     , newSingleAssignmentDisposable
-                     , toDisposable )
+import Rx.Disposable (dispose, newBooleanDisposable, newCompositeDisposable,
+                      newSingleAssignmentDisposable, toDisposable)
 import qualified Rx.Disposable as Disposable
+
+import Rx.Scheduler (Async, Scheduler, newThread, scheduleTimed)
 
 import Rx.Observable.Types
 
 --------------------------------------------------------------------------------
 
-commonTimeout' :: IObservable source
-               => (Observer a -> IO ())
-               -> (a -> Bool)
-               -> Scheduler Async
-               -> TimeInterval
-               -> source Async a
-               -> Observable Async a
-commonTimeout' onTimeout shouldResetTimeout scheduler interval source =
+data TimeoutOptions a
+  = TimeoutOptions {
+      _timeoutInterval        :: TimeInterval
+    , _timeoutStartAfterFirst :: Bool
+    , _completeOnTimeout      :: Bool
+    , _resetTimeoutWhen       :: (a -> Bool)
+    , _timeoutScheduler       :: Scheduler Async
+    }
+
+timeoutScheduler
+  :: Scheduler Async -> TimeoutOptions a -> TimeoutOptions a
+timeoutScheduler scheduler opts
+  = opts { _timeoutScheduler = scheduler }
+
+timeoutDelay
+  :: TimeInterval -> TimeoutOptions a -> TimeoutOptions a
+timeoutDelay interval opts
+  = opts { _timeoutInterval = interval }
+
+startAfterFirst
+  :: TimeoutOptions a -> TimeoutOptions a
+startAfterFirst opts
+  = opts { _timeoutStartAfterFirst = True }
+
+resetTimeoutWhen
+  :: (a -> Bool) -> TimeoutOptions a -> TimeoutOptions a
+resetTimeoutWhen resetQuery opts
+  = opts { _resetTimeoutWhen = resetQuery }
+
+completeOnTimeout :: TimeoutOptions a -> TimeoutOptions a
+completeOnTimeout opts = opts { _completeOnTimeout = True }
+
+--------------------------------------------------------------------------------
+
+timeoutWith
+  :: IObservable source
+  => (TimeoutOptions a -> TimeoutOptions a)
+  -> source Async a
+  -> Observable Async a
+timeoutWith modFn source =
     Observable $ \observer -> do
-      sourceDisposable  <- newSingleAssignmentDisposable
-      timeoutDisposable <- newBooleanDisposable
+      sourceDisposable <- newSingleAssignmentDisposable
+      timerDisposable  <- newBooleanDisposable
       subscription <-
-        main sourceDisposable timeoutDisposable observer
+        main sourceDisposable timerDisposable observer
 
       Disposable.set subscription sourceDisposable
-      return $ toDisposable sourceDisposable
+
+      allDisposables <- newCompositeDisposable
+      Disposable.append (toDisposable sourceDisposable) allDisposables
+      Disposable.append (toDisposable timerDisposable) allDisposables
+
+      return $ toDisposable allDisposables
   where
-    main sourceDisposable timeoutDisposable observer = do
+    defOpts = TimeoutOptions {
+        _timeoutInterval = seconds 0
+      , _timeoutStartAfterFirst = False
+      , _completeOnTimeout = False
+      , _resetTimeoutWhen = const True
+      , _timeoutScheduler = newThread
+      }
+    opts = modFn defOpts
+    scheduler = _timeoutScheduler opts
+    interval  = _timeoutInterval opts
+    shouldResetTimeout = _resetTimeoutWhen opts
+
+    main sourceDisposable timerDisposable observer = do
         resetTimeout
         subscribe source onNext_ onError_ onCompleted_
       where
+        onTimeout = do
+          if _completeOnTimeout opts
+            then onCompleted observer
+            else onError observer $ toException TimeoutError
         resetTimeout = do
           timer <- scheduleTimed scheduler interval $ do
-            onTimeout observer
+            onTimeout
             dispose sourceDisposable
-          -- This will automatically dispose the previos timer
-          Disposable.set timer timeoutDisposable
+          -- This will automatically dispose the previous timer
+          Disposable.set timer timerDisposable
 
         onNext_ v = do
           onNext observer v
@@ -54,128 +102,7 @@ commonTimeout' onTimeout shouldResetTimeout scheduler interval source =
         onError_ = onError observer
         onCompleted_ = onCompleted observer
 
-
-commonTimeoutAfterFirst'
-  :: IObservable source
-  => (Observer a -> IO ())
-  -> (a -> Bool)
-  -> Scheduler Async
-  -> TimeInterval
-  -> source Async a
-  -> Observable Async a
-commonTimeoutAfterFirst' onTimeout shouldResetTimeout scheduler interval source =
-    Observable $ \observer -> do
-      sourceDisposable <- newBooleanDisposable
-      disposable <- main observer sourceDisposable
-      Disposable.set disposable sourceDisposable
-      return $ toDisposable sourceDisposable
-  where
-    main observer sourceDisposable =
-        subscribe source onNext_ onError_ onCompleted_
-      where
-        onNext_ v = do
-          onNext observer v
-          when (shouldResetTimeout v) $ do
-            newDisposable <-
-              subscribe
-                (commonTimeout' onTimeout shouldResetTimeout scheduler interval source)
-                (onNext observer)
-                (onError observer)
-                (onCompleted observer)
-            Disposable.set newDisposable sourceDisposable
-
-        onError_ = onError observer
-        onCompleted_ = onCompleted observer
-
-completeOnTimeoutError
-  :: IObservable source
-  => source Async a
-  -> Observable Async a
-completeOnTimeoutError source =
-    Observable $ \observer ->
-      subscribe source
-        (onNext observer)
-        (onError_ observer)
-        (onCompleted observer)
-  where
-    onError_ observer err =
-      case fromException err of
-        Just TimeoutError -> onCompleted observer
-        Nothing -> onError observer err
-
---------------------------------------------------------------------------------
-
-timeout' :: IObservable source
-         => Scheduler Async
-         -> TimeInterval
-         -> source Async a
-         -> Observable Async a
-timeout' =
-  commonTimeout' (`onError` (toException $ TimeoutError)) (const True)
-
-timeoutSelect' :: IObservable source
-                 => Scheduler Async
-                 -> TimeInterval
-                 -> (a -> Bool)
-                 -> source Async a
-                 -> Observable Async a
-timeoutSelect' scheduler interval shouldResetTimeout =
-  commonTimeout'
-    (`onError` (toException $ TimeoutError)) shouldResetTimeout
-    scheduler interval
-
-timeoutAfterFirst'
-  :: IObservable source
-  => Scheduler Async
-  -> TimeInterval
-  -> source Async a
-  -> Observable Async a
-timeoutAfterFirst' =
-  commonTimeoutAfterFirst'
-    (`onError` (toException $ TimeoutError))
-    (const True)
-
-timeoutAfterFirstSelect'
-  :: IObservable source
-  => Scheduler Async
-  -> TimeInterval
-  -> (a -> Bool)
-  -> source Async a
-  -> Observable Async a
-timeoutAfterFirstSelect' scheduler interval shouldResetTimeout =
-  commonTimeoutAfterFirst'
-    (`onError` (toException $ TimeoutError))
-    shouldResetTimeout
-    scheduler
-    interval
-
---------------------
-
-timeout :: IObservable source
-        => TimeInterval
-        -> source Async a
-        -> Observable Async a
-timeout = timeout' newThread
-
-timeoutSelect
-  :: IObservable source
-  => TimeInterval
-  -> (a -> Bool)
-  -> source Async a
-  -> Observable Async a
-timeoutSelect = timeoutSelect' newThread
-
-timeoutAfterFirst
-  :: IObservable source
-  => TimeInterval
-  -> source Async a
-  -> Observable Async a
-timeoutAfterFirst = timeoutAfterFirst' newThread
-
-timeoutAfterFirstSelect
-  :: IObservable source
-  => TimeInterval
-  -> (a -> Bool)
-  -> source Async a
-  -> Observable Async a
-timeoutAfterFirstSelect = timeoutAfterFirstSelect' newThread
+timeout
+  :: IObservable source =>
+     TimeInterval -> source Async a -> Observable Async a
+timeout interval = timeoutWith (timeoutDelay interval)

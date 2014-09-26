@@ -33,6 +33,7 @@ test-suite rx-core-testsuite
     hspec,
     HUnit,
     QuickCheck,
+    tiempo,
     rx-core
 
   hs-source-dirs:      test

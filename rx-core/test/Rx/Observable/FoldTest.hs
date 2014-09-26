@@ -1,19 +1,19 @@
 module Rx.Observable.FoldTest (tests) where
 
-import Control.Concurrent       (threadDelay)
+import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (async, wait)
-import Control.Monad            (void)
+import Control.Monad (void)
 
 import qualified Rx.Observable as Rx
 import qualified Rx.Subject    as Rx
 
-import Test.Hspec (Spec, describe, it)
 import Test.HUnit (assertEqual, assertFailure)
+import Test.Hspec (Spec, describe, it)
 
 
 tests :: Spec
 tests =
-  describe "foldLeft" $ do
+  describe "Rx.Observable.foldLeft" $ do
     it "is thread safe" $ do
       let input = replicate 1000000 (1 :: Int)
           (as, bs) = splitAt 500000 input
