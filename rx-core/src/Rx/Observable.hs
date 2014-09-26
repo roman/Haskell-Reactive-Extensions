@@ -1,25 +1,29 @@
 {-# LANGUAGE FlexibleInstances #-}
 module Rx.Observable
        ( Scheduler
+       , Sync
+       , Async
+       , currentThread
+       , newThread
+
        , IObservable (..)
        , Observable (..)
        , IObserver (..)
        , ToObserver (..)
        , ToAsyncObservable (..)
        , ToSyncObservable (..)
-       , Async
-       , Sync
-       , Disposable
-       , Observer (..)
-       , Notification (..)
        , unsafeSubscribe
        , subscribe
        , subscribeOnNext
        , subscribeObserver
+
+       , Observer (..)
+       , Notification (..)
+
+       , Disposable
        , dispose
 
        , Observable.catch
-       , Observable.completeOnTimeoutError
        , Observable.concatMap
        , Observable.concatMapM
        , Observable.distinct
@@ -29,6 +33,7 @@ module Rx.Observable
        , Observable.filter
        , Observable.first
        , Observable.foldLeft
+       , Observable.foldMap
        , Observable.fromList
        , Observable.interval
        , Observable.map
@@ -47,14 +52,15 @@ module Rx.Observable
        , Observable.scanLeftWithItemM
        , Observable.scanLeftWithItem
        , Observable.throttle
+
        , Observable.timeout
-       , Observable.timeoutAfterFirst
-       , Observable.timeoutSelect
-       , Observable.timeoutAfterFirstSelect
-       , Observable.timeout'
-       , Observable.timeoutSelect'
-       , Observable.timeoutAfterFirst'
-       , Observable.timeoutAfterFirstSelect'
+       , Observable.timeoutWith
+       , Observable.timeoutScheduler
+       , Observable.timeoutDelay
+       , Observable.startAfterFirst
+       , Observable.resetTimeoutWhen
+       , Observable.completeOnTimeout
+
        , Observable.toList
        , Observable.toMaybe
        ) where
@@ -81,7 +87,7 @@ import qualified Rx.Observable.Throttle  as Observable
 import qualified Rx.Observable.Timeout   as Observable
 
 import Rx.Disposable (Disposable, dispose)
-import Rx.Scheduler  (Async, Scheduler, Sync, newThread, schedule)
+import Rx.Scheduler  (Async, Scheduler, Sync, currentThread, newThread, schedule)
 
 import Rx.Observable.Types
 
