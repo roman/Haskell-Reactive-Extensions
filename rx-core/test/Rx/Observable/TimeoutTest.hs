@@ -1,8 +1,8 @@
-module Rx.Observable.TimeoutTest where
+module Rx.Observable.TimeoutTest (tests) where
 
-import Tiempo
-import Test.HUnit
-import Test.Hspec
+import Test.Hspec (Spec, describe, it)
+import Test.HUnit (assertBool, assertFailure)
+import Tiempo     (microSeconds)
 
 import qualified Rx.Observable as Rx
 

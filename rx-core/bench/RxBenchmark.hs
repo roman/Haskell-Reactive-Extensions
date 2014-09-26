@@ -1,15 +1,15 @@
 module Main where
 
-import Criterion (bgroup, bench, nf, nfIO)
+import Criterion      (bench, bgroup, nf, nfIO)
 import Criterion.Main (defaultMain)
 
-import Control.Monad (replicateM)
-import Control.Concurrent (threadDelay)
+import Control.Concurrent       (threadDelay)
 import Control.Concurrent.Async (async, wait)
+import Control.Monad            (replicateM)
 
-import Data.List (foldl')
+import           Data.List     (foldl')
 import qualified Rx.Observable as Rx
-import qualified Rx.Subject as Rx
+import qualified Rx.Subject    as Rx
 
 main :: IO ()
 main = defaultMain [
