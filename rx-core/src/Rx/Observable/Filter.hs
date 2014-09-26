@@ -10,9 +10,9 @@ filterM :: IObservable observable
         -> observable s a
         -> Observable s a
 filterM filterFn =
-  concatMapM (\a -> do
-                 result <- filterFn a
-                 return $ if result then [a] else [])
+  concatMapM $ \a -> do
+    result <- filterFn a
+    return $ if result then [a] else []
 
 filter :: IObservable observable
        => (a -> Bool)

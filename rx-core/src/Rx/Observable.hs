@@ -31,6 +31,7 @@ module Rx.Observable
        , Observable.distinctUntilChangedWith
        , Observable.doAction
        , Observable.filter
+       , Observable.filterM
        , Observable.first
        , Observable.foldLeft
        , Observable.foldMap
@@ -64,7 +65,7 @@ module Rx.Observable
        ) where
 
 import Control.Applicative (Applicative (..))
-import Control.Monad       (ap)
+import Control.Monad (ap)
 
 import qualified Rx.Observable.Distinct  as Observable
 import qualified Rx.Observable.Do        as Observable
@@ -85,7 +86,7 @@ import qualified Rx.Observable.Throttle  as Observable
 import qualified Rx.Observable.Timeout   as Observable
 
 import Rx.Disposable (Disposable, dispose)
-import Rx.Scheduler  (Async, Scheduler, Sync, currentThread, newThread, schedule)
+import Rx.Scheduler (Async, Scheduler, Sync, currentThread, newThread, schedule)
 
 import Rx.Observable.Types
 
