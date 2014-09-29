@@ -26,8 +26,8 @@ once source =
       subscribe
           source
           (\v -> do
-            once  <- readMVar onceVar
-            case once of
+            mOnce <- readMVar onceVar
+            case mOnce of
               Nothing -> do
                 void $ swapMVar onceVar (Just v)
                 onNext observer v

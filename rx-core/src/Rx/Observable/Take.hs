@@ -2,11 +2,11 @@ module Rx.Observable.Take where
 
 import Prelude hiding (take, takeWhile)
 
-import Control.Concurrent.STM      (atomically)
+import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TVar (modifyTVar, newTVarIO, readTVar)
-import Control.Monad               (when)
+import Control.Monad (when)
 
-import           Rx.Disposable (dispose, newSingleAssignmentDisposable)
+import Rx.Disposable (dispose, newSingleAssignmentDisposable)
 import qualified Rx.Disposable as Disposable
 
 import Rx.Scheduler (Async)
@@ -41,11 +41,11 @@ take n source = Observable $ \observer -> do
         onError_ = onError observer
         onCompleted_ = onCompleted observer
 
-takeWhileIO :: IObservable observable
+takeWhileM :: IObservable observable
             => (a -> IO Bool)
             -> observable Async a
             -> Observable Async a
-takeWhileIO pred source = Observable $ \observer -> do
+takeWhileM predFn source = Observable $ \observer -> do
     sourceDisposable <- newSingleAssignmentDisposable
     subscription     <- main sourceDisposable observer
 
@@ -56,7 +56,7 @@ takeWhileIO pred source = Observable $ \observer -> do
         subscribe source onNext_ onError_ onCompleted_
       where
         onNext_ v = do
-          shouldContinue <- pred v
+          shouldContinue <- predFn v
           if shouldContinue
              then onNext observer v
              else do
@@ -69,4 +69,4 @@ takeWhile :: IObservable observable
           => (a -> Bool)
           -> observable Async a
           -> Observable Async a
-takeWhile pred = takeWhileIO (return . pred)
+takeWhile predFn = takeWhileM (return . predFn)

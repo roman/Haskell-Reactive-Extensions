@@ -2,6 +2,7 @@ module Rx.Observable.Merge where
 
 import Prelude hiding (mapM)
 
+import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
 import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TVar (modifyTVar, newTVarIO, readTVar, writeTVar)
 import Control.Monad (void, when)
@@ -9,10 +10,8 @@ import Control.Monad (void, when)
 import Data.Traversable (mapM)
 import Data.Unique (hashUnique, newUnique)
 import qualified Data.HashMap.Strict as HashMap
-import qualified Data.Set            as Set
 
-import Rx.Disposable (createDisposable, dispose, emptyDisposable,
-                      newSingleAssignmentDisposable, toDisposable)
+import Rx.Disposable (createDisposable, dispose, newSingleAssignmentDisposable)
 import qualified Rx.Disposable as Disposable
 
 import Rx.Scheduler (Async, newThread)
@@ -37,11 +36,11 @@ merge obsSource = Observable $ \outerObserver -> do
          disposableMapVar
          sourceCompletedVar = do
 
-        innerDisposable <-
+        sourceSubscriptionDisposable <-
           subscribe obsSource onNextSource onErrorSource onCompletedSource
 
         sourceDisposable <- createDisposable $ do
-          dispose innerDisposable
+          dispose sourceSubscriptionDisposable
           disposableMap <- atomically $ readTVar disposableMapVar
           void $ mapM dispose disposableMap
 
@@ -50,21 +49,26 @@ merge obsSource = Observable $ \outerObserver -> do
       where
         onNextSource source = do
           sourceId <- hashUnique `fmap` newUnique
+          sourceIdVar <- newEmptyMVar
           sourceDisposable <-
-            subscribe source onNext_ onError_ (onCompleted_ sourceId)
+            subscribe source onNext_ onError_ (onCompleted_ sourceIdVar)
 
           atomically $ modifyTVar disposableMapVar
                      $ HashMap.insert sourceId sourceDisposable
+          putMVar sourceIdVar sourceId
 
         onErrorSource err = do
           dispose mainDisposable
           onError outerObserver err
 
         onCompletedSource = do
-          shouldComplete <- atomically $ do
+          subscribedCount <- atomically $ do
             writeTVar sourceCompletedVar True
-            HashMap.null `fmap` readTVar disposableMapVar
-          when shouldComplete $ onCompleted outerObserver
+            HashMap.size `fmap` readTVar disposableMapVar
+
+          when (subscribedCount == 0)
+            $ onCompleted outerObserver
+
 
         onNext_ = onNext outerObserver
 
@@ -72,23 +76,26 @@ merge obsSource = Observable $ \outerObserver -> do
           dispose mainDisposable
           onError outerObserver err
 
-        onCompleted_ sourceId = do
+        onCompleted_ sourceIdVar = do
+          sourceId <- takeMVar sourceIdVar
           shouldComplete <- atomically $ checkShouldComplete sourceId
           when shouldComplete $ onCompleted outerObserver
 
         checkShouldComplete sourceId = do
-          disposableMap   <- readTVar disposableMapVar
           sourceCompleted <- readTVar sourceCompletedVar
-          let disposableMap' = HashMap.delete sourceId disposableMap
-          if HashMap.null disposableMap' && sourceCompleted
-             then return $ True
+
+          disposableMap <- readTVar disposableMapVar
+          let disposableMap1 = HashMap.delete sourceId disposableMap
+
+          if sourceCompleted && HashMap.null disposableMap1
+             then return True
              else do
-               writeTVar disposableMapVar disposableMap'
+               writeTVar disposableMapVar disposableMap1
                return False
 
 mergeList
   :: (IObservable observable)
   => [observable Async a]
   -> Observable Async a
-mergeList sourceList =
-  merge $ Observable.fromList newThread sourceList
+mergeList =
+  merge . Observable.fromList newThread

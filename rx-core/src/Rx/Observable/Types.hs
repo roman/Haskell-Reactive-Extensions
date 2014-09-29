@@ -3,21 +3,18 @@ module Rx.Observable.Types where
 
 import Data.Typeable (Typeable)
 
-import Control.Exception (Exception(..), throwIO)
-import Control.Monad (forever)
+import Control.Exception (AsyncException (ThreadKilled), Exception (..), Handler (..),
+                          SomeException, catches, throw, throwIO)
+import Control.Monad (forever, void)
 
-import Control.Exception   (AsyncException (ThreadKilled), Handler (..),
-                            SomeException, catches, throw)
 
 import Control.Concurrent.STM (TChan, atomically, readTChan)
 
-import           Rx.Disposable ( Disposable, emptyDisposable
-                               , newCompositeDisposable
-                               , newSingleAssignmentDisposable )
+import Rx.Disposable (Disposable, emptyDisposable, newCompositeDisposable,
+                      newSingleAssignmentDisposable)
 import qualified Rx.Disposable as Disposable
 
-import           Rx.Scheduler  ( Async, IScheduler, Sync
-                               , currentThread, newThread, schedule )
+import Rx.Scheduler (Async, IScheduler, Sync, newThread, schedule)
 
 --------------------------------------------------------------------------------
 
@@ -102,9 +99,9 @@ instance ToAsyncObservable TChan where
 
 instance ToSyncObservable TChan where
   toSyncObservable chan = Observable $ \observer -> do
-    forever $ do
-      ev <- atomically $ readTChan chan
-      onNext observer ev
+    void
+      $ forever
+      $ atomically (readTChan chan) >>= onNext observer
     emptyDisposable
 
 --------------------------------------------------------------------------------

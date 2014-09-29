@@ -1,6 +1,6 @@
 module Rx.Observable.Fold where
 
-import Data.IORef (atomicModifyIORef', atomicWriteIORef, newIORef, readIORef, writeIORef)
+import Data.IORef (atomicModifyIORef', newIORef, readIORef)
 import Data.Monoid (Monoid (..))
 
 import Rx.Observable.Types
@@ -10,9 +10,9 @@ foldLeft :: IObservable source
          -> acc
          -> source s a
          -> Observable s acc
-foldLeft foldFn acc source =
+foldLeft foldFn acc0 source =
   Observable $ \observer -> do
-      accVar <- newIORef acc
+      accVar <- newIORef acc0
       main accVar observer
     where
       main accVar observer =

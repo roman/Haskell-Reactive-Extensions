@@ -1,6 +1,6 @@
 module Rx.Observable.Filter where
 
-import Prelude hiding (filter, filterM)
+import Prelude hiding (filter)
 
 import Rx.Observable.Map (concatMapM)
 import Rx.Observable.Types

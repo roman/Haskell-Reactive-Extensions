@@ -1,13 +1,12 @@
 module Rx.Observable.Throttle where
 
-import Data.Time (getCurrentTime, diffUTCTime)
-import Control.Monad (when)
 import Control.Concurrent.STM (atomically, newTVarIO, readTVar, writeTVar)
+import Control.Monad (when)
+import Data.Time (diffUTCTime, getCurrentTime)
 
 import Tiempo (TimeInterval, toNominalDiffTime)
 
 import Rx.Observable.Filter (filterM)
-import Rx.Scheduler (Scheduler, currentThread)
 import Rx.Observable.Types
 
 --------------------------------------------------------------------------------

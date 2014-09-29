@@ -1,6 +1,6 @@
 module Rx.Observable.Scan where
 
-import Data.IORef (atomicModifyIORef', newIORef, readIORef)
+import Data.IORef (atomicModifyIORef', newIORef)
 import Rx.Observable.Types
 
 scanLeft :: IObservable source

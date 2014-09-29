@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 {-# LANGUAGE FlexibleInstances #-}
 module Rx.Observable
        ( Scheduler
@@ -50,6 +51,9 @@ module Rx.Observable
        , Observable.repeatEvery'
        , Observable.scanLeft
        , Observable.scanLeftItem
+       , Observable.take
+       , Observable.takeWhile
+       , Observable.takeWhileM
        , Observable.throttle
 
        , Observable.timeout

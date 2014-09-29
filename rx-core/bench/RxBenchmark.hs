@@ -1,27 +1,32 @@
 module Main where
 
-import Criterion      (bench, bgroup, nf, nfIO)
+import Criterion (bench, bgroup, nf, nfIO)
 import Criterion.Main (defaultMain)
 
-import Control.Concurrent       (threadDelay)
+import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (async, wait)
-import Control.Monad            (replicateM)
+import Control.Monad (replicateM)
 
-import           Data.List     (foldl')
+import Data.List (foldl')
 import qualified Rx.Observable as Rx
 import qualified Rx.Subject    as Rx
 
 main :: IO ()
 main = defaultMain [
-    bgroup "foldLeft" [
-        bench "foldl'" $ nf (foldl' (+) 0) inputList
-      , bench "Rx.foldLeft" $ nfIO normalFoldLeft
-      , bench "Rx.foldLeft with contention (10 threads)"
+      bench "foldl'" $ nf (foldl' (+) 0) inputList
+      bgroup "Rx.foldLeft" [
+        bench "withtout contention" $ nfIO normalFoldLeft
+      , bench "with contention (10 threads)"
           $ nfIO (highContentionFoldLeft 10)
-      , bench "Rx.foldLeft with contention (100 threads)"
+      , bench "with contention (100 threads)"
           $ nfIO (highContentionFoldLeft 100)
-      , bench "Rx.foldLeft with contention (1000 threads)"
+      , bench "with contention (1000 threads)"
           $ nfIO (highContentionFoldLeft 1000)
+      , bench "with contention (100000 threads)"
+          $ nfIO (highContentionFoldLeft 1000) ]
+    , bgroup "Rx.merge" [
+        bench "with contention (10000 threads)"
+          $ nfIO (highContentionMerge 10000)
       ]]
   where
     inputList :: [Int]
@@ -44,3 +49,9 @@ main = defaultMain [
       Rx.toMaybe
         (Rx.foldLeft (+) 0
           $ Rx.toAsyncObservable subject)
+
+    highContentionMerge workerCount =
+      let sources = replicate workerCount
+                      $ Rx.fromList Rx.newThread (replicate 100 (1 :: Int))
+          source = Rx.mergeList sources
+      in Rx.toMaybe $ Rx.foldLeft (+) 0 source

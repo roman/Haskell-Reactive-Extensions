@@ -2,28 +2,30 @@ module Rx.Observable.List where
 
 import Control.Exception (SomeException)
 import Control.Monad (void)
-import qualified Control.Concurrent.MVar as MVar
 
-import Rx.Scheduler (Scheduler, schedule)
+import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
+import Data.IORef (atomicModifyIORef', newIORef, readIORef)
+
 import Rx.Observable.Types
+import Rx.Scheduler (Scheduler, schedule)
 
 toList
   :: IObservable source
   => source s a
   -> IO (Either ([a], SomeException) [a])
 toList source = do
-  doneVar <- MVar.newEmptyMVar
-  accVar <- MVar.newMVar []
-  disposable <-
-    subscribe
-      source
-      (\v -> MVar.modifyMVar_ accVar (return . (v:)))
-      (\err -> do
-         acc <- MVar.takeMVar accVar
-         MVar.putMVar doneVar (Left (acc, err)))
-      (do acc <- MVar.takeMVar accVar
-          MVar.putMVar doneVar (Right acc))
-  MVar.takeMVar doneVar
+  doneVar <- newEmptyMVar
+  accVar <- newIORef []
+  void
+    $ subscribe
+        source
+        (\v -> atomicModifyIORef' accVar (\acc -> (v:acc, ())))
+        (\err -> do
+           acc <- readIORef accVar
+           putMVar doneVar (Left (acc, err)))
+        (do acc <- readIORef accVar
+            putMVar doneVar (Right acc))
+  takeMVar doneVar
 
 
 fromList :: Scheduler s -> [a] -> Observable s a
