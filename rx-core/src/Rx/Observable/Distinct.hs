@@ -1,8 +1,9 @@
+{-# LANGUAGE BangPatterns #-}
 module Rx.Observable.Distinct where
 
-import qualified Control.Concurrent.MVar as MVar
-import qualified Data.Set as Set
+import Control.Concurrent.MVar (modifyMVar_, newMVar)
 import Rx.Observable.Types
+import qualified Data.Set as Set
 
 
 -- | Returns an `Observable` that emits all items emitted by the source
@@ -12,12 +13,12 @@ import Rx.Observable.Types
 distinct :: (IObservable source, Eq a, Ord a)
          => source s a
          -> Observable s a
-distinct source =
+distinct !source =
   Observable $ \observer -> do
-    cacheVar <- MVar.newMVar Set.empty
+    cacheVar <- newMVar Set.empty
     subscribe source
       (\v ->
-        MVar.modifyMVar_ cacheVar $ \cache ->
+        modifyMVar_ cacheVar $ \cache ->
           if Set.member v cache
             then return cache
             else do
@@ -25,6 +26,7 @@ distinct source =
               return $ Set.insert v cache)
       (onError observer)
       (onCompleted observer)
+{-# INLINE distinct #-}
 
 -- | Returns an `Observable` that emits all items emitted by the source
 -- `Observable` that are distinct from their immediate predecessors,
@@ -35,24 +37,25 @@ distinctUntilChangedWith :: (IObservable source, Eq b)
                          => (a -> b)
                          -> source s a
                          -> Observable s a
-distinctUntilChangedWith mapFn source =
+distinctUntilChangedWith !mapFn !source =
     Observable $ \observer -> do
-      priorValVar <- MVar.newEmptyMVar
+      priorValVar <- newMVar Nothing
       subscribe source
                    (\val -> do
-                     mpriorVal <- MVar.tryReadMVar priorValVar
-                     case mpriorVal of
-                       Nothing -> do
-                         MVar.putMVar priorValVar val
-                         onNext observer val
-                       Just priorVal
-                         | mapFn priorVal == mapFn val -> return ()
-                         | otherwise -> do
-                           MVar.modifyMVar_ priorValVar (\_ -> return val)
-                           onNext observer val)
+                     modifyMVar_ priorValVar $ \mpriorVal -> do
+                       case mpriorVal of
+                         Nothing -> do
+                           onNext observer val
+                           return $! Just val
+                         Just priorVal
+                           | mapFn priorVal == mapFn val ->
+                             return $! Just priorVal
+                           | otherwise -> do
+                             onNext observer val
+                             return $! Just val)
                    (onError observer)
                    (onCompleted observer)
-
+{-# INLINE distinctUntilChangedWith #-}
 
 -- | Returns an `Observable` that emits all items emitted by the source
 -- `Observable` that are distinct from their immediate predecessors.
@@ -61,3 +64,4 @@ distinctUntilChangedWith mapFn source =
 distinctUntilChanged :: (IObservable source, Eq a)
                      => source s a -> Observable s a
 distinctUntilChanged = distinctUntilChangedWith id
+{-# INLINE distinctUntilChanged #-}

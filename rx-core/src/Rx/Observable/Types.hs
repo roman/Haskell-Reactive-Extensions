@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns       #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 module Rx.Observable.Types where
 
@@ -23,12 +24,15 @@ import qualified Rx.Scheduler as Rx (Async)
 class IObserver observer where
   onNext :: observer v -> v -> IO ()
   onNext ob v = emitNotification ob (OnNext v)
+  {-# INLINE onNext #-}
 
   onError :: observer v -> SomeException -> IO ()
   onError ob err = emitNotification ob (OnError err)
+  {-# INLINE onError #-}
 
   onCompleted :: observer v -> IO ()
   onCompleted ob = emitNotification ob OnCompleted
+  {-# INLINE onCompleted #-}
 
   emitNotification :: observer v -> Notification v -> IO ()
 
@@ -78,27 +82,34 @@ instance Exception TimeoutError
 
 instance ToObserver Subject where
   toObserver subject = Observer (_subjectOnEmitNotification subject)
+  {-# INLINE toObserver #-}
 
 instance ToAsyncObservable Subject where
   toAsyncObservable = Observable . _subjectOnSubscribe
+  {-# INLINE toAsyncObservable #-}
 
 instance IObserver Subject where
   emitNotification = _subjectOnEmitNotification
+  {-# INLINE emitNotification #-}
 
 instance ToObserver Observer where
   toObserver = id
+  {-# INLINE toObserver #-}
 
 instance IObserver Observer where
   emitNotification (Observer f) = f
+  {-# INLINE emitNotification #-}
 
 instance IObservable Observable where
   onSubscribe = _onSubscribe
+  {-# INLINE onSubscribe #-}
 
 instance ToAsyncObservable TChan where
   toAsyncObservable chan = Observable $ \observer ->
     schedule newThread $ forever $ do
       ev <- atomically $ readTChan chan
       onNext observer ev
+  {-# INLINE toAsyncObservable #-}
 
 instance ToSyncObservable TChan where
   toSyncObservable chan = Observable $ \observer -> do
@@ -106,6 +117,7 @@ instance ToSyncObservable TChan where
       $ forever
       $ atomically (readTChan chan) >>= onNext observer
     emptyDisposable
+  {-# INLINE toSyncObservable #-}
 
 --------------------------------------------------------------------------------
 
@@ -115,12 +127,14 @@ unsafeSubscribe :: (IObservable observable)
           -> (SomeException -> IO ())
           -> IO ()
           -> IO Disposable
-unsafeSubscribe source nextHandler errHandler complHandler =
+unsafeSubscribe !source !nextHandler !errHandler !complHandler =
     onSubscribe source $ Observer observerFn
   where
     observerFn (OnNext v) = nextHandler v
     observerFn (OnError err) = errHandler err
     observerFn OnCompleted = complHandler
+{-# INLINE unsafeSubscribe #-}
+
 
 subscribe :: (IObservable observable)
           => observable s v
@@ -128,31 +142,34 @@ subscribe :: (IObservable observable)
           -> (SomeException -> IO ())
           -> IO ()
           -> IO Disposable
-subscribe source nextHandler0 errHandler0 complHandler0 =
+subscribe !source !nextHandler0 !errHandler0 !complHandler0 =
     unsafeSubscribe source nextHandler errHandler0 complHandler0
   where
     nextHandler v =
       (v `seq` nextHandler0 v)
         `catches` [ Handler (\err@ThreadKilled -> throw err)
                   , Handler errHandler0]
+{-# INLINE subscribe #-}
 
 
 subscribeOnNext :: (IObservable observable)
                 => observable s v
                 -> (v -> IO ())
                 -> IO Disposable
-subscribeOnNext source nextHandler =
+subscribeOnNext !source !nextHandler =
   subscribe source nextHandler throwIO (return ())
+{-# INLINE subscribeOnNext #-}
 
 subscribeObserver
   :: (IObservable observable, ToObserver observer)
   => observable s a -> observer a -> IO Disposable
-subscribeObserver source observer0 =
+subscribeObserver !source !observer0 =
   let observer = toObserver observer0
   in subscribe source
                (onNext observer)
                (onError observer)
                (onCompleted observer)
+{-# INLINE subscribeObserver #-}
 
 --------------------------------------------------------------------------------
 
@@ -160,7 +177,7 @@ createObservable :: IScheduler scheduler
                  => scheduler s
                  -> (Observer a -> IO Disposable)
                  -> Observable s a
-createObservable scheduler action = Observable $ \observer -> do
+createObservable !scheduler !action = Observable $ \observer -> do
   obsDisposable    <- newCompositeDisposable
   actionDisposable <- newSingleAssignmentDisposable
   threadDisposable <-
@@ -171,3 +188,4 @@ createObservable scheduler action = Observable $ \observer -> do
   Disposable.append actionDisposable obsDisposable
 
   return $ Disposable.toDisposable obsDisposable
+{-# INLINE createObservable #-}
