@@ -8,14 +8,15 @@ module Rx.Subject.SingleSubject (
 
 import Control.Monad (when)
 
+import Control.Concurrent.Async (async)
 import Control.Concurrent.STM (atomically)
 import qualified Control.Concurrent.STM.TQueue as TQueue
 import qualified Control.Concurrent.STM.TVar   as TVar
 
 import Rx.Disposable (createDisposable, emptyDisposable)
-import qualified Rx.Disposable     as Disposable
-import qualified Rx.Notification          as Notification
-import           Rx.Observable.Types
+import Rx.Observable.Types
+import qualified Rx.Disposable   as Disposable
+import qualified Rx.Notification as Notification
 
 --------------------------------------------------------------------------------
 
@@ -26,8 +27,9 @@ _newSingleSubject queueOnEmpty = do
     notificationQueue <- TQueue.newTQueueIO
     main observerVar completedVar notificationQueue
   where
-    main observerVar completedVar notificationQueue =
-        return $ Subject singleSubscribe singleEmitNotification
+    main observerVar completedVar notificationQueue = do
+        stateMachineAsync <- async $ return ()
+        return $ Subject singleSubscribe singleEmitNotification stateMachineAsync
       where
         emitQueuedNotifications observer = when queueOnEmpty $ do
           result <-

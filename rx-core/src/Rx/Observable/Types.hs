@@ -8,13 +8,15 @@ import Control.Exception (AsyncException (ThreadKilled), Exception (..), Handler
 import Control.Monad (forever, void)
 
 
+import Control.Concurrent.Async (Async)
 import Control.Concurrent.STM (TChan, atomically, readTChan)
 
 import Rx.Disposable (Disposable, emptyDisposable, newCompositeDisposable,
                       newSingleAssignmentDisposable)
 import qualified Rx.Disposable as Disposable
 
-import Rx.Scheduler (Async, IScheduler, Sync, newThread, schedule)
+import Rx.Scheduler (IScheduler, Sync, newThread, schedule)
+import qualified Rx.Scheduler as Rx (Async)
 
 --------------------------------------------------------------------------------
 
@@ -37,7 +39,7 @@ class IObservable observable where
   onSubscribe :: observable s a -> Observer a -> IO Disposable
 
 class ToAsyncObservable observable where
-  toAsyncObservable :: observable a -> Observable Async a
+  toAsyncObservable :: observable a -> Observable Rx.Async a
 
 class ToSyncObservable observable where
   toSyncObservable :: observable a -> Observable Sync a
@@ -54,6 +56,7 @@ data Subject v =
   Subject {
     _subjectOnSubscribe        :: Observer v -> IO Disposable
   , _subjectOnEmitNotification :: Notification v -> IO ()
+  , _subjectStateMachine       :: Async ()
   }
   deriving (Typeable)
 
