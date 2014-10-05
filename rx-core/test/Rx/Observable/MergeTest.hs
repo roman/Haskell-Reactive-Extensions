@@ -3,8 +3,9 @@ module Rx.Observable.MergeTest (tests) where
 import Test.HUnit
 import Test.Hspec
 
-import Control.Concurrent (threadDelay)
+import Control.Concurrent (threadDelay, yield)
 import Control.Concurrent.Async (async, wait)
+import Control.Monad (replicateM_)
 
 import qualified Rx.Observable as Rx
 import qualified Rx.Subject    as Rx
@@ -14,34 +15,28 @@ tests =
   describe "Rx.Observable.Merge" $
     describe "merge" $
       it "completes after all inner Observables are completed" $ do
-        outerSubject  <- Rx.newPublishSubject
-        innerSubject0 <- Rx.newPublishSubject
-        innerSubject1 <- Rx.newPublishSubject
+        sourceSubject  <- Rx.newPublishSubject
+        innerSubject0  <- Rx.newPublishSubject
+        innerSubject1  <- Rx.newPublishSubject
         let source = Rx.foldLeft (+) 0
                        $ Rx.merge
-                       $ Rx.toAsyncObservable outerSubject
-            emit subject =
-              Rx.onNext outerSubject $ Rx.toAsyncObservable subject
-            work subject =
-              mapM_ (Rx.onNext subject)
+                       $ Rx.toAsyncObservable sourceSubject
+
 
         aResult <- async $ Rx.toMaybe source
-        threadDelay 100
 
-        emit innerSubject0
-        work innerSubject0 $ replicate 100 (1 :: Int)
-        emit innerSubject1
-
-        Rx.onCompleted outerSubject
+        Rx.onNext sourceSubject $ Rx.toAsyncObservable innerSubject0
+        replicateM_ 100  $ Rx.onNext innerSubject0 (1 :: Int)
+        Rx.onNext sourceSubject $ Rx.toAsyncObservable innerSubject1
+        Rx.onCompleted sourceSubject
 
         -- If merge doesn't wait for inner observables
         -- this numbers should not be in the total count
-        work innerSubject1 $ replicate 50 (1 :: Int)
+        replicateM_ 50   $ Rx.onNext innerSubject1 (1 :: Int)
+        replicateM_ 1000 $ Rx.onNext innerSubject0 1
+
         Rx.onCompleted innerSubject1
-
-        work innerSubject0 $ replicate 1000 (1 :: Int)
         Rx.onCompleted innerSubject0
-
 
         mResult <- wait aResult
         case mResult of
