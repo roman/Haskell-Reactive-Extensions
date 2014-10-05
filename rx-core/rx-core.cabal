@@ -49,6 +49,7 @@ library
     Rx.Observable.Types,
     Rx.Observable.Distinct,
     Rx.Observable.Do,
+    Rx.Observable.Either,
     Rx.Observable.Error,
     Rx.Observable.Filter,
     Rx.Observable.First,

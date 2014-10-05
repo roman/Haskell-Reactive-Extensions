@@ -66,6 +66,7 @@ module Rx.Observable
 
        , Observable.toList
        , Observable.toMaybe
+       , Observable.toEither
        ) where
 
 import Control.Applicative (Applicative (..))
@@ -73,6 +74,7 @@ import Control.Monad (ap)
 
 import qualified Rx.Observable.Distinct  as Observable
 import qualified Rx.Observable.Do        as Observable
+import qualified Rx.Observable.Either    as Observable
 import qualified Rx.Observable.Error     as Observable
 import qualified Rx.Observable.Filter    as Observable
 import qualified Rx.Observable.First     as Observable
