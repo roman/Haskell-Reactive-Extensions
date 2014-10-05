@@ -4,12 +4,13 @@ module Rx.Subject
        , Single.newSingleSubject
        , Single.newSingleSubjectWithQueue
        , IObserver(..)
+       , ToAsyncObservable(..)
        , subscribe )
        where
 
-import qualified Rx.Subject.SingleSubject as Single
-import qualified Rx.Subject.PublishSubject as Publish
 import Rx.Observable.Types
+import qualified Rx.Subject.PublishSubject as Publish
+import qualified Rx.Subject.SingleSubject  as Single
 
 newPublishSubject :: IO (Subject v)
 newPublishSubject = Publish.create
