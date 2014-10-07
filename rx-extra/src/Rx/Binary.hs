@@ -1,18 +1,26 @@
 module Rx.Binary where
 
+import Prelude hiding (lines, unlines)
 
-import Control.Concurrent.Async (async, cancel)
-import Control.Exception (SomeException, catch, mask, throwIO)
+import Control.Exception (SomeException, catch, mask, throwIO, try)
 import Control.Monad (unless, void)
 
-
+import Data.ByteString.Lazy.Internal (defaultChunkSize)
 import Data.IORef (atomicModifyIORef', newIORef, readIORef)
+import qualified Data.Binary             as B
 import qualified Data.ByteString         as BS
+import qualified Data.ByteString.Lazy    as LB
 import qualified Data.Streaming.FileRead as FR
 
-import Rx.Disposable (createDisposable)
-import Rx.Observable (Async, Observable (..), onCompleted, onError, onNext)
+import qualified System.IO as IO
+
+import Rx.Disposable (createDisposable, newCompositeDisposable, toDisposable)
+import Rx.Observable (Observable (..), onCompleted, onError, onNext)
+import qualified Rx.Disposable as Disposable
 import qualified Rx.Observable as Rx
+import qualified Rx.Scheduler  as Rx (IScheduler, schedule)
+
+--------------------------------------------------------------------------------
 
 bracketWithException
   :: IO h -> (h -> IO b) -> (SomeException -> IO ()) -> (h -> IO b) -> IO b
@@ -29,48 +37,86 @@ bracketWithException accquire release onErrorCb perform =
     onErrorAndRaise restore err = restore (onErrorCb err) >> throwIO err
 
 
-fileObservable :: FilePath -> Observable Async BS.ByteString
-fileObservable path = Observable $ \observer -> do
-    fileAsync <-
-      async $
+fileObservable
+  :: Rx.IScheduler scheduler
+     => scheduler s -> FilePath -> Observable s BS.ByteString
+fileObservable scheduler path = Observable $ \observer ->
+      Rx.schedule scheduler $
         bracketWithException (FR.openFile path)
                              FR.closeFile
                              (onError observer)
                              (loop observer)
-    createDisposable $ cancel fileAsync
   where
     loop observer h = do
       bs <- FR.readChunk h
-      if (BS.null bs)
+      if BS.null bs
         then onCompleted observer
-        else onNext observer bs
+        else onNext observer bs >> loop observer h
 
-lines :: Observable s BS.ByteString -> Observable s BS.ByteString
+handleObservable
+  :: Rx.IScheduler scheduler
+     => scheduler s -> IO.Handle -> Observable s BS.ByteString
+handleObservable scheduler h = Observable $ \observer ->
+      Rx.schedule scheduler $ loop observer
+  where
+    loop observer = do
+      result <- try $ BS.hGetSome h defaultChunkSize
+      case result of
+        Right bs
+          | BS.null bs -> onCompleted observer
+          | otherwise  -> onNext observer bs
+        Left err -> onError observer err
+
+
+toHandle
+  :: Rx.IObservable source => source s BS.ByteString -> IO.Handle -> IO Rx.Disposable
+toHandle source h = Rx.subscribeOnNext source (BS.hPutStr h)
+
+toFile
+  :: Rx.IObservable source => source s BS.ByteString -> FilePath -> IO Rx.Disposable
+toFile source filepath = do
+  h <- IO.openFile filepath IO.WriteMode
+  mainDisposable <- newCompositeDisposable
+  sourceDisposable <-
+    Rx.subscribe source (BS.hPutStr h)
+                        (\err -> IO.hClose h >> throwIO err)
+                        (IO.hClose h)
+  fileDisposable <- createDisposable $ IO.hClose h
+  Disposable.append sourceDisposable mainDisposable
+  Disposable.append fileDisposable mainDisposable
+  return $ toDisposable mainDisposable
+
+--------------------------------------------------------------------------------
+
+lines
+  :: Rx.IObservable source
+     => source s BS.ByteString
+     -> Observable s BS.ByteString
 lines source = Observable $ \observer -> do
     bufferVar <- newIORef id
     main bufferVar observer
   where
+    newline = 10
     main bufferVar observer =
         Rx.subscribe
-          source onNext_ onError_ onCompleted_
+          source (onNext_ id) onError_ onCompleted_
       where
-        newline = 10
-        onNext_ inputBS = do
-          let (current, rest0) = BS.breakByte newline inputBS
-          -- split the newline from rest0
-          case BS.uncons rest0 of
-            Just (_, rest) -> do
-              outputBS <-
-                atomicModifyIORef' bufferVar
-                  $ \appendPrev -> (BS.append rest, appendPrev current)
-              onNext observer outputBS
-            Nothing -> do
+        onNext_ appendPrev inputBS = do
+          let (first, second) = BS.breakByte newline inputBS
+          case BS.uncons second of
+            Just (_, withoutNL) -> do
+              onNext observer (appendPrev first)
+              onNext_ id withoutNL
+            Nothing ->
               atomicModifyIORef' bufferVar
-                 $ \appendPrev -> (BS.append current . appendPrev, ())
+                 $ \_ ->
+                 let rest = appendPrev inputBS
+                 in (BS.append rest, ())
+
 
         emitRemaining = do
-          appendRemaining <- readIORef bufferVar
-          let outputBS = appendRemaining BS.empty
+          appendPrev <- readIORef bufferVar
+          let outputBS = appendPrev BS.empty
           unless (BS.null outputBS) $ onNext observer outputBS
 
         onError_ err = do
@@ -81,7 +127,24 @@ lines source = Observable $ \observer -> do
           emitRemaining
           onCompleted observer
 
+unlines
+  :: Rx.IObservable source
+     => source s BS.ByteString -> Observable s BS.ByteString
+unlines = Rx.concatMap $ \input -> [input, newline]
+  where
+    newline = BS.pack [10]
 
 
-unlines :: Observable s BS.ByteString -> Observable s BS.ByteString
-unlines _ = undefined
+encode :: (B.Binary b, Rx.IObservable source)
+       => source s b
+       -> Observable s BS.ByteString
+encode =
+  unlines
+  . Rx.concatMap (LB.toChunks . B.encode)
+
+decode :: (B.Binary b, Rx.IObservable source)
+       => source s BS.ByteString
+       -> Observable s b
+decode =
+  Rx.map (B.decode . LB.fromChunks . return)
+  . lines
