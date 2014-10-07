@@ -1,11 +1,11 @@
 module Rx.Binary where
 
 import Control.Concurrent.Async (async, cancel)
-import Control.Exception (SomeException, mask, catch, finally, throwIO)
-import qualified Data.ByteString as BS
-import qualified Data.Streaming.FileRead as FR
+import Control.Exception (SomeException, catch, finally, mask, throwIO)
 import Rx.Disposable (Disposable, createDisposable)
-import Rx.Observable (Observable(..), Async, onCompleted, onNext, onError)
+import Rx.Observable (Async, Observable (..), onCompleted, onError, onNext)
+import qualified Data.ByteString         as BS
+import qualified Data.Streaming.FileRead as FR
 
 bracketWithException
   :: IO h -> (h -> IO b) -> (SomeException -> IO ()) -> (h -> IO b) -> IO b
@@ -15,12 +15,11 @@ bracketWithException accquire release onErrorCb perform =
       r <- restore (perform h)
            `catch` \err -> do
              release h `catch` onErrorAndRaise
-             onErrorCb err
-             throwIO err
+             onErrorAndRaise err
       release h `catch` onErrorAndRaise
       return r
   where
-    onErrorAndRaise err = onErrorCb err >> throwIO err
+    onErrorAndRaise err = restore (onErrorCb err) >> throwIO err
 
 
 fileObservable :: FilePath -> Observable Async BS.ByteString
