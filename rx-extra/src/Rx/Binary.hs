@@ -1,8 +1,11 @@
+{-# LANGUAGE DeriveDataTypeable #-}
 module Rx.Binary where
 
 import Prelude hiding (lines, unlines)
 
-import Control.Exception (SomeException, catch, mask, throwIO, try)
+import Control.Exception (Exception (..), SomeException, catch, mask, throwIO, try)
+import Data.Typeable (Typeable)
+
 import Control.Monad (unless, void)
 
 import Data.ByteString.Lazy.Internal (defaultChunkSize)
@@ -20,6 +23,14 @@ import Rx.Observable (Observable (..), onCompleted, onError, onNext)
 import qualified Rx.Disposable as Disposable
 import qualified Rx.Observable as Rx
 import qualified Rx.Scheduler  as Rx (IScheduler, schedule)
+
+--------------------------------------------------------------------------------
+
+data DecodeError
+  = DecodeError String
+  deriving (Show, Typeable)
+
+instance Exception DecodeError
 
 --------------------------------------------------------------------------------
 
@@ -158,12 +169,24 @@ encode :: (B.Binary b, Rx.IObservable source)
        => source s b
        -> Observable s BS.ByteString
 encode =
-  unlines
+  joinWith 0
   . Rx.concatMap (LB.toChunks . B.encode)
 
 decode :: (B.Binary b, Rx.IObservable source)
        => source s BS.ByteString
        -> Observable s b
-decode =
-  Rx.map (B.decode . LB.fromChunks . return)
-  . lines
+decode source0 = Observable $ \observer -> main observer
+  where
+    main observer = do
+        let source = Rx.map (LB.fromChunks . return) source0
+        Rx.subscribe source onNext_ onError_ onCompleted_
+      where
+        onNext_ inputBS =
+          case B.decodeOrFail inputBS of
+            Left  (_, _, errMsg) -> throwIO $ DecodeError errMsg
+            Right (remainder0, _, b) -> do
+              onNext observer b
+              let remainder = LB.tail remainder0
+              unless (LB.null remainder) $ onNext_ remainder
+        onError_ = onError observer
+        onCompleted_ = onCompleted observer
