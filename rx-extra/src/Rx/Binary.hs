@@ -7,6 +7,7 @@ import Control.Monad (unless, void)
 
 import Data.ByteString.Lazy.Internal (defaultChunkSize)
 import Data.IORef (atomicModifyIORef', newIORef, readIORef)
+import Data.Monoid ((<>))
 import qualified Data.Binary             as B
 import qualified Data.ByteString         as BS
 import qualified Data.ByteString.Lazy    as LB
@@ -37,10 +38,10 @@ bracketWithException accquire release onErrorCb perform =
     onErrorAndRaise restore err = restore (onErrorCb err) >> throwIO err
 
 
-fileObservable
+fromFile
   :: Rx.IScheduler scheduler
      => scheduler s -> FilePath -> Observable s BS.ByteString
-fileObservable scheduler path = Observable $ \observer ->
+fromFile scheduler path = Observable $ \observer ->
       Rx.schedule scheduler $
         bracketWithException (FR.openFile path)
                              FR.closeFile
@@ -53,10 +54,10 @@ fileObservable scheduler path = Observable $ \observer ->
         then onCompleted observer
         else onNext observer bs >> loop observer h
 
-handleObservable
+fromHandle
   :: Rx.IScheduler scheduler
      => scheduler s -> IO.Handle -> Observable s BS.ByteString
-handleObservable scheduler h = Observable $ \observer ->
+fromHandle scheduler h = Observable $ \observer ->
       Rx.schedule scheduler $ loop observer
   where
     loop observer = do
@@ -67,6 +68,7 @@ handleObservable scheduler h = Observable $ \observer ->
           | otherwise  -> onNext observer bs
         Left err -> onError observer err
 
+--------------------
 
 toHandle
   :: Rx.IObservable source => source s BS.ByteString -> IO.Handle -> IO Rx.Disposable
@@ -86,27 +88,27 @@ toFile source filepath = do
   Disposable.append fileDisposable mainDisposable
   return $ toDisposable mainDisposable
 
---------------------------------------------------------------------------------
+--------------------
 
-lines
+sepBy
   :: Rx.IObservable source
-     => source s BS.ByteString
+     => B.Word8
+     -> source s BS.ByteString
      -> Observable s BS.ByteString
-lines source = Observable $ \observer -> do
+sepBy sepByte source = Observable $ \observer -> do
     bufferVar <- newIORef id
     main bufferVar observer
   where
-    newline = 10
     main bufferVar observer =
         Rx.subscribe
           source (onNext_ id) onError_ onCompleted_
       where
         onNext_ appendPrev inputBS = do
-          let (first, second) = BS.breakByte newline inputBS
+          let (first, second) = BS.breakByte sepByte inputBS
           case BS.uncons second of
-            Just (_, withoutNL) -> do
+            Just (_, rest) -> do
               onNext observer (appendPrev first)
-              onNext_ id withoutNL
+              onNext_ id rest
             Nothing ->
               atomicModifyIORef' bufferVar
                  $ \_ ->
@@ -127,13 +129,30 @@ lines source = Observable $ \observer -> do
           emitRemaining
           onCompleted observer
 
+joinWith
+  :: Rx.IObservable source
+     => B.Word8
+     -> source s BS.ByteString
+     -> Observable s BS.ByteString
+joinWith sepByte = Rx.map $ \input -> input <> sepBS
+  where
+    sepBS = BS.pack [sepByte]
+
+--------------------
+
+lines
+  :: Rx.IObservable source
+     => source s BS.ByteString
+     -> Observable s BS.ByteString
+lines = sepBy 10
+
 unlines
   :: Rx.IObservable source
-     => source s BS.ByteString -> Observable s BS.ByteString
-unlines = Rx.concatMap $ \input -> [input, newline]
-  where
-    newline = BS.pack [10]
+     => source s BS.ByteString
+     -> Observable s BS.ByteString
+unlines = joinWith 10
 
+--------------------
 
 encode :: (B.Binary b, Rx.IObservable source)
        => source s b
