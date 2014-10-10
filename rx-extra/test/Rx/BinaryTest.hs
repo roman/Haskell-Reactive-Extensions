@@ -6,8 +6,9 @@ import Control.Monad (void)
 import System.Directory (getTemporaryDirectory, removeFile)
 import System.FilePath (joinPath)
 
-import qualified Rx.Binary     as Rx (decode, encode, fromFile, toFile)
-import qualified Rx.Observable as Rx (currentThread, fromList, toList)
+import qualified Rx.Binary     as Rxb (decode, encode, fromFile, toFile)
+import qualified Rx.Observable as Rx (currentThread, fromList, newThread,
+                                      toEither, toList)
 
 import Test.HUnit (assertEqual, assertFailure)
 import Test.Hspec
@@ -20,11 +21,11 @@ tests = do
       dir <- getTemporaryDirectory
       let input = [1..100] :: [Int]
           filename = joinPath [dir, "encode_decode_test"]
-          writeSource = Rx.encode $ Rx.fromList Rx.currentThread input
-          readSource  = Rx.decode $ Rx.fromFile Rx.currentThread filename
+          writeSource = Rxb.encode $ Rx.fromList Rx.newThread input
+          readSource  = Rxb.decode $ Rxb.fromFile Rx.currentThread filename
 
       flip finally (removeFile filename) $ do
-        void $ Rx.toFile writeSource filename
+        void $ Rx.toEither (Rxb.toFile filename writeSource)
         result <- Rx.toList readSource
         case result of
           Right output ->

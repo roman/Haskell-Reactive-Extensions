@@ -1,9 +1,22 @@
+{-# LANGUAGE BangPatterns       #-}
 {-# LANGUAGE DeriveDataTypeable #-}
-module Rx.Binary where
+module Rx.Binary (
+    fromFile
+  , toFile
+  , fromHandle
+  , toHandle
+  , sepBy
+  , joinWith
+  , encode
+  , decode
+  , lines
+  , unlines
+  ) where
 
 import Prelude hiding (lines, unlines)
 
-import Control.Exception (Exception (..), SomeException, catch, mask, throwIO, try)
+import Control.Exception (Exception (..), SomeException, catch, mask, throwIO,
+                          try)
 import Data.Typeable (Typeable)
 
 import Control.Monad (unless, void)
@@ -36,7 +49,7 @@ instance Exception DecodeError
 
 bracketWithException
   :: IO h -> (h -> IO b) -> (SomeException -> IO ()) -> (h -> IO b) -> IO b
-bracketWithException accquire release onErrorCb perform =
+bracketWithException !accquire !release !onErrorCb !perform =
     mask $ \restore -> do
       h <- accquire `catch` onErrorAndRaise restore
       r <- restore (perform h)
@@ -47,12 +60,13 @@ bracketWithException accquire release onErrorCb perform =
       return r
   where
     onErrorAndRaise restore err = restore (onErrorCb err) >> throwIO err
+{-# INLINE bracketWithException #-}
 
 
 fromFile
   :: Rx.IScheduler scheduler
      => scheduler s -> FilePath -> Observable s BS.ByteString
-fromFile scheduler path = Observable $ \observer ->
+fromFile !scheduler !path = Observable $ \observer ->
       Rx.schedule scheduler $
         bracketWithException (FR.openFile path)
                              FR.closeFile
@@ -64,11 +78,12 @@ fromFile scheduler path = Observable $ \observer ->
       if BS.null bs
         then onCompleted observer
         else onNext observer bs >> loop observer h
+{-# INLINE fromFile #-}
 
 fromHandle
   :: Rx.IScheduler scheduler
      => scheduler s -> IO.Handle -> Observable s BS.ByteString
-fromHandle scheduler h = Observable $ \observer ->
+fromHandle !scheduler !h = Observable $ \observer ->
       Rx.schedule scheduler $ loop observer
   where
     loop observer = do
@@ -78,26 +93,37 @@ fromHandle scheduler h = Observable $ \observer ->
           | BS.null bs -> onCompleted observer
           | otherwise  -> onNext observer bs
         Left err -> onError observer err
+{-# INLINE fromHandle #-}
 
 --------------------
 
 toHandle
-  :: Rx.IObservable source => source s BS.ByteString -> IO.Handle -> IO Rx.Disposable
-toHandle source h = Rx.subscribeOnNext source (BS.hPutStr h)
+  :: Rx.IObservable source => IO.Handle -> source s BS.ByteString -> Observable s ()
+toHandle !h !source = Observable $ \observer ->
+  Rx.subscribe source (BS.hPutStr h)
+                      (onError observer)
+                      (do onNext observer ()
+                          onCompleted observer)
+{-# INLINE toHandle #-}
 
-toFile
-  :: Rx.IObservable source => source s BS.ByteString -> FilePath -> IO Rx.Disposable
-toFile source filepath = do
+toFile :: Rx.IObservable source => FilePath -> source s BS.ByteString -> Observable s ()
+toFile !filepath !source = Observable $ \observer -> do
   h <- IO.openFile filepath IO.WriteMode
-  mainDisposable <- newCompositeDisposable
+  rootDisposable <- newCompositeDisposable
   sourceDisposable <-
     Rx.subscribe source (BS.hPutStr h)
-                        (\err -> IO.hClose h >> throwIO err)
-                        (IO.hClose h)
+                        (\err -> do
+                            IO.hClose h
+                            onError observer err)
+                        (do IO.hClose h
+                            onNext observer ()
+                            onCompleted observer)
   fileDisposable <- createDisposable $ IO.hClose h
-  Disposable.append sourceDisposable mainDisposable
-  Disposable.append fileDisposable mainDisposable
-  return $ toDisposable mainDisposable
+  Disposable.append sourceDisposable rootDisposable
+  Disposable.append fileDisposable rootDisposable
+  return $ toDisposable rootDisposable
+{-# INLINE toFile #-}
+
 
 --------------------
 
@@ -106,7 +132,7 @@ sepBy
      => B.Word8
      -> source s BS.ByteString
      -> Observable s BS.ByteString
-sepBy sepByte source = Observable $ \observer -> do
+sepBy !sepByte !source = Observable $ \observer -> do
     bufferVar <- newIORef id
     main bufferVar observer
   where
@@ -139,15 +165,17 @@ sepBy sepByte source = Observable $ \observer -> do
         onCompleted_ = do
           emitRemaining
           onCompleted observer
+{-# INLINE sepBy #-}
 
 joinWith
   :: Rx.IObservable source
      => B.Word8
      -> source s BS.ByteString
      -> Observable s BS.ByteString
-joinWith sepByte = Rx.map $ \input -> input <> sepBS
+joinWith !sepByte = Rx.map $ \input -> input <> sepBS
   where
     sepBS = BS.pack [sepByte]
+{-# INLINE joinWith #-}
 
 --------------------
 
@@ -156,12 +184,14 @@ lines
      => source s BS.ByteString
      -> Observable s BS.ByteString
 lines = sepBy 10
+{-# INLINE lines #-}
 
 unlines
   :: Rx.IObservable source
      => source s BS.ByteString
      -> Observable s BS.ByteString
 unlines = joinWith 10
+{-# INLINE unlines #-}
 
 --------------------
 
@@ -171,11 +201,12 @@ encode :: (B.Binary b, Rx.IObservable source)
 encode =
   joinWith 0
   . Rx.concatMap (LB.toChunks . B.encode)
+{-# INLINE encode #-}
 
 decode :: (B.Binary b, Rx.IObservable source)
        => source s BS.ByteString
        -> Observable s b
-decode source0 = Observable $ \observer -> main observer
+decode !source0 = Observable $ \observer -> main observer
   where
     main observer = do
         let source = Rx.map (LB.fromChunks . return) source0
@@ -190,3 +221,4 @@ decode source0 = Observable $ \observer -> main observer
               unless (LB.null remainder) $ onNext_ remainder
         onError_ = onError observer
         onCompleted_ = onCompleted observer
+{-# INLINE decode #-}
