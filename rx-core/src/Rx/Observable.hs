@@ -55,6 +55,8 @@ module Rx.Observable
        , Observable.takeWhile
        , Observable.takeWhileM
        , Observable.throttle
+       , Observable.zip
+       , Observable.zipWith
 
        , Observable.timeout
        , Observable.timeoutWith
@@ -70,7 +72,6 @@ module Rx.Observable
        ) where
 
 import Control.Applicative (Applicative (..))
-import Control.Monad (ap)
 
 import qualified Rx.Observable.Distinct  as Observable
 import qualified Rx.Observable.Do        as Observable
@@ -90,9 +91,10 @@ import qualified Rx.Observable.Scan      as Observable
 import qualified Rx.Observable.Take      as Observable
 import qualified Rx.Observable.Throttle  as Observable
 import qualified Rx.Observable.Timeout   as Observable
+import qualified Rx.Observable.Zip       as Observable
 
-import Rx.Disposable (Disposable, dispose)
-import Rx.Scheduler (Async, Scheduler, Sync, currentThread, newThread, schedule)
+import Rx.Disposable (Disposable, dispose, emptyDisposable)
+import Rx.Scheduler (Async, Scheduler, Sync, currentThread, newThread)
 
 import Rx.Observable.Types
 
@@ -101,11 +103,15 @@ instance Functor (Observable s) where
 
 instance Applicative (Observable Async) where
   pure result =
-    Observable $ \observer ->
-      schedule newThread $
-        onNext observer result
-  (<*>) = ap
+    Observable $ \observer -> do
+      onNext observer result
+      emptyDisposable
+
+  obF <*> obV = Observable.zipWith ($) obF obV
 
 instance Monad (Observable Async) where
-  return = pure
+  return result =
+    Observable $ \observer -> do
+      onNext observer result
+      emptyDisposable
   (>>=)  = Observable.flatMap
