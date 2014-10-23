@@ -31,6 +31,8 @@ module Rx.Observable
        , Observable.distinctUntilChanged
        , Observable.distinctUntilChangedWith
        , Observable.doAction
+       , Observable.doOnCompleted
+       , Observable.doOnError
        , Observable.filter
        , Observable.filterM
        , Observable.first
