@@ -15,6 +15,7 @@ import Rx.Observable.Types
 toEither :: Observable Async a -> IO (Either SomeException a)
 toEither source = do
     completedVar <- newEmptyMVar
+    putStrLn "Subscription STARTING"
     subDisposable <- subscribe
              (first source)
              (void . tryPutMVar completedVar . Right)

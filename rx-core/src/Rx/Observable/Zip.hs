@@ -1,11 +1,11 @@
 {-# LANGUAGE RankNTypes #-}
 module Rx.Observable.Zip where
 
+import Control.Exception (finally)
 import Prelude hiding (zip, zipWith)
 
-import Control.Concurrent.STM (TQueue, atomically, isEmptyTQueue, modifyTVar,
-                               newTQueueIO, newTVarIO, readTQueue, readTVar,
-                               writeTQueue)
+import Control.Concurrent.STM (TQueue, atomically, isEmptyTQueue, modifyTVar, newTQueueIO,
+                               newTVarIO, readTQueue, readTVar, writeTQueue)
 import Control.Monad (unless, when)
 
 import Rx.Disposable (dispose, newCompositeDisposable, toDisposable)
@@ -61,20 +61,20 @@ zipWith zipFn source1 source2 = Observable $ \observer -> do
           wasCompleted <- atomically $ readTVar isCompletedVar
           when wasCompleted $ dispose mainDisposable
 
-        areQueuesEmpty = atomically $ do
+        isAnyQueueEmpty = atomically $ do
           q1IsEmpty <- isEmpty queue1
           q2IsEmpty <- isEmpty queue2
           return $ q1IsEmpty || q2IsEmpty
 
         emptyQueues = do
-          queuesAreEmpty <- areQueuesEmpty
-          unless queuesAreEmpty $ do
+          anyQueueEmpty <- isAnyQueueEmpty
+          unless anyQueueEmpty $ do
             onNext_
             emptyQueues
 
         onNext_ = do
-          queuesAreEmpty <- areQueuesEmpty
-          unless queuesAreEmpty $ do
+          anyQueueEmpty <- isAnyQueueEmpty
+          unless anyQueueEmpty $ do
             val1 <- next queue1
             val2 <- next queue2
             onNext observer $ zipFn val1 val2
@@ -90,9 +90,11 @@ zipWith zipFn source1 source2 = Observable $ \observer -> do
           onError observer err
 
         onCompleted_ = do
+          putStrLn "COMPLETING"
           completedCount <- atomically $ do
             modifyTVar completedCountVar succ
             readTVar completedCountVar
+          putStrLn $ "COMPLETED: " ++ show completedCount
           when (completedCount == 2) $ do
             stop
             emptyQueues
