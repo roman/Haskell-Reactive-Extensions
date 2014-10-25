@@ -34,9 +34,12 @@ test-suite rx-core-testsuite
     HUnit,
     QuickCheck,
     tiempo,
-    rx-core
+    rx-core,
+    rx-scheduler,
+    rx-disposable
 
   hs-source-dirs:      test
+  ghc-options:         -rtsopts -eventlog -threaded
   default-language:    Haskell2010
 
 
@@ -66,6 +69,7 @@ library
     Rx.Observable.Take,
     Rx.Observable.Throttle,
     Rx.Observable.Timeout,
+    Rx.Observable.Zip,
     Rx.Subject.SingleSubject,
     Rx.Subject.PublishSubject
 
