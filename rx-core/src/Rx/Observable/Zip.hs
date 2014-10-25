@@ -1,11 +1,11 @@
 {-# LANGUAGE RankNTypes #-}
 module Rx.Observable.Zip where
 
-import Control.Exception (finally)
+import Control.Concurrent (yield)
 import Prelude hiding (zip, zipWith)
 
 import Control.Concurrent.STM (TQueue, atomically, isEmptyTQueue, modifyTVar, newTQueueIO,
-                               newTVarIO, readTQueue, readTVar, writeTQueue)
+                               newTVarIO, readTQueue, readTVar, writeTQueue, writeTVar)
 import Control.Monad (unless, when)
 
 import Rx.Disposable (dispose, newCompositeDisposable, toDisposable)
@@ -47,19 +47,20 @@ zipWith zipFn source1 source2 = Observable $ \observer -> do
           subscribe source1 onNextA
                             onError_
                             onCompleted_
+
         disposableB <-
           subscribe source2 onNextB
                             onError_
                             onCompleted_
 
-        Disposable.append disposableA mainDisposable
         Disposable.append disposableB mainDisposable
+        Disposable.append disposableA mainDisposable
 
         return $ toDisposable mainDisposable
       where
-        stop = do
+        whileNotCompleted action = do
           wasCompleted <- atomically $ readTVar isCompletedVar
-          when wasCompleted $ dispose mainDisposable
+          unless wasCompleted $ action
 
         isAnyQueueEmpty = atomically $ do
           q1IsEmpty <- isEmpty queue1
@@ -79,24 +80,25 @@ zipWith zipFn source1 source2 = Observable $ \observer -> do
             val2 <- next queue2
             onNext observer $ zipFn val1 val2
 
-        onNextA a = do conj queue1 a
-                       onNext_
+        onNextA a = whileNotCompleted $ do
+          yield
+          conj queue1 a
+          onNext_
 
-        onNextB b = do conj queue2 b
-                       onNext_
+        onNextB b = whileNotCompleted $ do
+          conj queue2 b
+          onNext_
 
-        onError_ err = do
-          stop
+        onError_ err = whileNotCompleted $ do
           onError observer err
 
-        onCompleted_ = do
-          putStrLn "COMPLETING"
+        onCompleted_ = whileNotCompleted $ do
           completedCount <- atomically $ do
             modifyTVar completedCountVar succ
             readTVar completedCountVar
-          putStrLn $ "COMPLETED: " ++ show completedCount
+
           when (completedCount == 2) $ do
-            stop
+            atomically $ writeTVar isCompletedVar True
             emptyQueues
             onCompleted observer
 
