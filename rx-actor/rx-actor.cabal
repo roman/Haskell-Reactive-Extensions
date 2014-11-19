@@ -21,9 +21,6 @@ test-suite rx-actor-testsuite
     base,
     HUnit,
     hspec,
-    tasty,
-    tasty-hspec,
-    tasty-rerun,
 
     tiempo,
     rx-logger,
