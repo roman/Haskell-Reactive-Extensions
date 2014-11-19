@@ -53,6 +53,7 @@ module Rx.Observable
        , Observable.repeatEvery'
        , Observable.scanLeft
        , Observable.scanLeftItem
+       , Observable.scanLeftItemM
        , Observable.take
        , Observable.takeWhile
        , Observable.takeWhileM
