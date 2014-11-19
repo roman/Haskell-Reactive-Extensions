@@ -1,40 +1,39 @@
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE FunctionalDependencies #-}
-{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE DeriveDataTypeable         #-}
+{-# LANGUAGE ExistentialQuantification  #-}
+{-# LANGUAGE FlexibleInstances          #-}
+{-# LANGUAGE FunctionalDependencies     #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE DeriveDataTypeable #-}
-{-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE StandaloneDeriving         #-}
 module Rx.Actor.Types where
 
 import Control.Concurrent.Async (Async)
-import Control.Concurrent.STM (TVar, TChan)
+import Control.Concurrent.STM (TChan, TVar)
 
 import Control.Exception (Exception, SomeException)
 
 import Control.Applicative (Applicative)
-import Control.Monad.Trans (MonadIO(..))
 import Control.Monad.Reader (ReaderT)
 import Control.Monad.State.Strict (StateT)
+import Control.Monad.Trans (MonadIO (..))
 
-import qualified Control.Monad.Reader as Reader
+import qualified Control.Monad.Reader       as Reader
 import qualified Control.Monad.State.Strict as State
 
-import Data.Monoid (mappend)
-import Data.Typeable (Typeable)
 import Data.HashMap.Strict (HashMap)
 import Data.Maybe (fromMaybe)
+import Data.Monoid (mappend)
+import Data.Typeable (Typeable)
 
 import qualified Data.Text.Lazy as LText
 
 import Tiempo (TimeInterval)
 
-import Rx.Disposable ( Disposable, IDisposable, ToDisposable
-                     , dispose )
+import Rx.Disposable (Disposable, IDisposable, ToDisposable, dispose)
 
-import Rx.Logger (Logger, ToLogger(..), ToLogMsg(..))
+import Rx.Logger (Logger, ToLogMsg (..), ToLogger (..))
 
-import Rx.Subject (Subject)
 import Rx.Observable (Observable, Sync)
+import Rx.Subject (Subject)
 
 import qualified Rx.Disposable as Disposable
 
@@ -102,8 +101,9 @@ data ChildEvent
 
 data SupervisorEvent
   = ActorSpawned { _supEvInitActorDef :: !GenericActorDef }
+  | TerminateChildFromSupervisor { _supEvTerminatedActorKey :: !ChildKey }
   | ActorTerminated {
-      _supEvTerminatedActorDef :: !GenericActorDef
+      _supEvTerminatedActorDef :: !ChildKey
     }
   | forall st . ActorFailedWithError {
       _supEvTerminatedActor       :: !Actor
@@ -194,7 +194,7 @@ type ChildrenMap = TVar (HashMap ActorKey Actor)
 
 data StartStrategy
   = ViaPreStart {
-    _startStrategyActorDef   :: !GenericActorDef
+    _startStrategyActorDef :: !GenericActorDef
   }
   | forall st . ViaPreRestart {
     _startStrategyPrevState      :: !st
@@ -306,8 +306,10 @@ instance ToDisposable Actor where
 instance Show SupervisorEvent where
   show (ActorSpawned gActorDef) =
     "ActorSpawned " ++ toActorKey gActorDef
-  show (ActorTerminated gActorDef) =
-    "ActorTerminated " ++ toActorKey gActorDef
+  show (TerminateChildFromSupervisor childKey) =
+    "TerminateChildFromSupervisor " ++ childKey
+  show (ActorTerminated actorKey) =
+    "ActorTerminated " ++ actorKey
   show supEv@(ActorFailedWithError {}) =
     let actorKey = toActorKey . _actorDef $ _supEvTerminatedActor supEv
         actorErr = _supEvTerminatedError supEv

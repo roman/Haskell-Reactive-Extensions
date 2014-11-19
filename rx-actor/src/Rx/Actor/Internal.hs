@@ -361,8 +361,11 @@ actorLoop _ actorDef actor st (SupervisorEvent ev) = do
     (ActorSpawned gChildActorDef) ->
       void $ addChildActor actor st gChildActorDef
 
-    (ActorTerminated child) ->
-      removeChildActor actor st child
+    (TerminateChildFromSupervisor childKey) -> do
+      terminateChildFromSupervisor actor st childKey
+
+    (ActorTerminated childKey) ->
+      removeChildActor actor st childKey
 
     (ActorFailedOnInitialize err _) ->
       cleanupActorAndRaise actor st err
@@ -450,7 +453,7 @@ handleActorLoopError actorDef actor err@(SomeException innerErr) st gev = do
 
 stopActorLoop :: forall st. ActorDef st -> IO st
 stopActorLoop actorDef =
-  throwIO $ ActorTerminated (GenericActorDef actorDef)
+  throwIO $ ActorTerminated (toActorKey actorDef)
 
 ---
 
@@ -634,6 +637,22 @@ removeChildActor actor actorSt child = do
   when wasRemoved $
     runActorCtx $
       Logger.noisyF "Removing child {}" (Only childActorKey)
+
+terminateChildFromSupervisor :: forall st. Actor -> st -> ChildKey -> IO ()
+terminateChildFromSupervisor actor actorSt childActorKey = do
+  let runActorCtx = evalReadOnlyActorM actorSt actor
+  mChild <- atomically $ do
+    childMap <- readTVar $ _actorChildren actor
+    return $ HashMap.lookup childActorKey childMap
+  runActorCtx $
+    Logger.noisyF "Send ActorStopped to child '{}' from parent" (Only childActorKey)
+  case mChild of
+    Nothing ->
+      runActorCtx $
+        Logger.warnF "Tried to stop actor '{}' but it didn't exist"
+                     (Only childActorKey)
+    Just child -> sendChildEventToActor child ActorStopped
+
 
 cleanupActorAndRaise :: forall st. Actor -> st -> SomeException -> IO ()
 cleanupActorAndRaise actor actorSt serr@(SomeException err) = do

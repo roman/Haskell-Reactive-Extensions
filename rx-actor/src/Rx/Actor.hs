@@ -1,7 +1,7 @@
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE DeriveDataTypeable         #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE OverloadedStrings          #-}
+{-# LANGUAGE ScopedTypeVariables        #-}
 module Rx.Actor
        (
          HasActor, GetState(..)
@@ -15,7 +15,8 @@ module Rx.Actor
        , startRootActor, stopRootActor, joinRootActor
        -- ^ * ActorM API
        , getActorKey, getEventBus, getLogger, setState, modifyState
-       , emit, spawnChild, State.put, State.get, State.modify, Reader.ask, actorLogMsg
+       , emit, spawnChild, stopChild, State.put, State.get, State.modify
+       , Reader.ask, actorLogMsg
        -- ^ * EventBus API
        , fromGenericEvent, toGenericEvent, emitEvent, typeOfEvent, filterEvent, mapEvent
        , newEventBus, emitOnActor
@@ -27,20 +28,20 @@ module Rx.Actor
 
 
 import Control.Monad (void)
-import Control.Monad.Trans (MonadIO(..))
+import Control.Monad.Trans (MonadIO (..))
 import Data.Typeable (Typeable, typeOf)
-import Rx.Observable (onNext, dispose)
-import Rx.Logger (Logger, Only(..), newLogger)
+import Rx.Logger (Logger, Only (..), newLogger)
 import Rx.Logger.Monad as Logger
+import Rx.Observable (dispose, onNext)
 import Rx.Subject (newPublishSubject)
 
-import qualified Control.Monad.State as State
 import qualified Control.Monad.Reader as Reader
+import qualified Control.Monad.State  as State
 
-import Rx.Actor.Internal
 import Rx.Actor.ActorBuilder
-import Rx.Actor.Monad
 import Rx.Actor.EventBus
+import Rx.Actor.Internal
+import Rx.Actor.Monad
 import Rx.Actor.Types
 
 --------------------------------------------------------------------------------

@@ -1,16 +1,16 @@
+{-# LANGUAGE FlexibleInstances          #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses      #-}
+{-# LANGUAGE StandaloneDeriving         #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Rx.Actor.Monad where
 
 import Control.Concurrent.STM (atomically, writeTChan)
 
 import Control.Monad (liftM)
-import Control.Monad.Trans (MonadIO(..))
+import Control.Monad.Trans (MonadIO (..))
+import qualified Control.Monad.Reader       as Reader
 import qualified Control.Monad.State.Strict as State
-import qualified Control.Monad.Reader as Reader
 
 import Data.Typeable (Typeable)
 
@@ -18,7 +18,7 @@ import Rx.Observable (onNext)
 
 import Rx.Logger (Logger)
 
-import Rx.Actor.ActorBuilder (ActorBuilder, defActor, actorKey)
+import Rx.Actor.ActorBuilder (ActorBuilder, actorKey, defActor)
 import Rx.Actor.EventBus (toGenericEvent)
 import Rx.Actor.Types
 
@@ -54,6 +54,11 @@ spawnChild :: (MonadIO m, HasActor m)
 spawnChild childKey childBuilder = do
   let childDef = defActor (childBuilder >> actorKey childKey)
   sendSupervisionEvent (ActorSpawned $ GenericActorDef childDef)
+
+stopChild :: (MonadIO m, HasActor m)
+          => ChildKey -> m ()
+stopChild childKey =
+  sendSupervisionEvent (TerminateChildFromSupervisor childKey)
 
 --------------------------------------------------------------------------------
 

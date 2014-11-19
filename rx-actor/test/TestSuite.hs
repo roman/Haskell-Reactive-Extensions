@@ -1,15 +1,14 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 module Main where
 
-import Control.Exception ( ErrorCall (..)
-                         , finally )
+import Control.Exception (ErrorCall (..), finally)
 import Tiempo
 
-import Rx.Logger (setupLogTracer, defaultSettings)
 import Rx.Actor
+import Rx.Logger (defaultSettings, setupLogTracer)
 
-import Test.Hspec
 import Assertion
+import Test.Hspec
 
 --------------------------------------------------------------------------------
 
@@ -71,6 +70,7 @@ actorSpec logger evBus = do
         [ [emitToActor (), expectError (ErrorCall "fail!")] ]
 
   describe "dynamic child" $ do
+
     it "can receive emitted events" $ do
       let input = 777 :: Int
 
@@ -83,6 +83,24 @@ actorSpec logger evBus = do
                   singleTypeActor sendToAssertReceived)
           [ [emitToActor ()]
           , [emitToActor input, assertReceived input] ]
+
+    it "can be stopped" $ do
+      let input = "Child is Alive" :: String
+
+      testActorSystem logger evBus
+          (\sendToAssertReceived -> do
+              preStart $ return $ InitOk ()
+              receive $ \(req :: Either () ()) ->
+                case req of
+                 Left () -> stopChild "single-type"
+                 Right () ->
+                   spawnChild "single-type" $ do
+                     preStart $ return (InitOk ())
+                     postStop $ liftIO $ sendToAssertReceived "Child was Stopped"
+                     singleTypeActor sendToAssertReceived)
+          [ [emitToActor (Right () :: Either () ())]
+          , [emitToActor input, assertReceived input]
+          , [emitToActor (Left () :: Either () ()), assertReceived "Child was Stopped"] ]
 
 
   describe "static child" $ do
@@ -116,6 +134,25 @@ actorSpec logger evBus = do
         [ [ emitToActor leftInput, assertReceived (Left leftInput) ]
         , [ emitToActor rightInput, assertReceived (Right rightInput) ]
         ]
+
+    it "can be stopped" $ do
+      let input = "Child is Alive" :: String
+
+      testActorSystem logger evBus
+          (\sendToAssertReceived -> do
+              preStart $ return $ InitOk ()
+              receive $ \(req :: Either () ()) ->
+                case req of
+                 Left () -> stopChild "single-type"
+                 Right () ->
+                   spawnChild "single-type" $ do
+                     preStart $ return (InitOk ())
+                     postStop $ liftIO $ sendToAssertReceived "Child was Stopped"
+                     singleTypeActor sendToAssertReceived)
+          [ [emitToActor (Right () :: Either () ())]
+          , [emitToActor input, assertReceived input]
+          , [emitToActor (Left () :: Either () ()), assertReceived "Child was Stopped"] ]
+
 
     it "can handle a state" $ do
       testActorSystem logger evBus
