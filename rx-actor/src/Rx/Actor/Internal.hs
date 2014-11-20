@@ -171,7 +171,7 @@ spawnActor strategy parent logger evBus children gevQueue childQueue supQueue =
   where
     throwOnError err =
       case fromException err of
-        Just (ActorTerminated _) -> return ()
+        Just (ChildTerminated _) -> return ()
         _ -> throwIO err
 
 initActor
@@ -272,27 +272,27 @@ startActorLoop mparent actorDef actor st0 = do
       $ Logger.loud ("Starting actor loop" :: String)
 
     subscribe actorObservable
-                  -- TODO: Receive a function that understands
-                  -- the state and can provide meaningful
-                  -- state <=> ev info
-                  (const $ return ())
-                  handleActorObservableError
-                  (return ())
+              -- TODO: Receive a function that understands
+              -- the state and can provide meaningful
+              -- state <=> ev info
+              (const $ return ())
+              handleActorObservableError
+              (return ())
   where
     actorObservable =
-      scanLeftItemM (actorLoop mparent actorDef actor) st0 $
-      _actorEventBusDecorator actorDef $
-      Observable.repeat (getEventFromQueue actor)
+      scanLeftItemM (actorLoop mparent actorDef actor) st0
+        $ _actorEventBusDecorator actorDef
+        $ Observable.repeat (getEventFromQueue actor)
 
     handleActorObservableError serr@(SomeException err0) = do
       let runActorCtx = evalReadOnlyActorM st0 actor
       case mparent of
         Nothing ->
           case fromException serr of
-            Just err@(ActorFailedWithError {}) ->
-              throwIO $ _supEvTerminatedError err
-            Just (ActorTerminated {}) ->
+            Just (ChildTerminated {}) ->
               return ()
+            Just err@(ChildFailedWithError {}) ->
+              throwIO $ _supEvTerminatedError err
             Just err -> do
               let errMsg = "Unhandled SupervisorEvent received " ++ show err
               runActorCtx $ Logger.warn errMsg
@@ -316,10 +316,10 @@ startActorLoop mparent actorDef actor st0 = do
 ---
 
 getEventFromQueue :: Actor -> IO ActorEvent
-getEventFromQueue actor = atomically $
-  (ChildEvent <$> readTChan (_actorChildEvQueue actor)) `orElse`
-  (SupervisorEvent <$> readTChan (_actorSupEvQueue actor)) `orElse`
-  (NormalEvent  <$> readTChan (_actorGenericEvQueue actor))
+getEventFromQueue actor =
+  atomically $ (ChildEvent      <$> readTChan (_actorChildEvQueue actor))
+      `orElse` (SupervisorEvent <$> readTChan (_actorSupEvQueue actor))
+      `orElse` (NormalEvent     <$> readTChan (_actorGenericEvQueue actor))
 
 ---
 
@@ -358,19 +358,19 @@ actorLoop mParent actorDef actor st (ChildEvent ActorStopped) = do
 
 actorLoop _ actorDef actor st (SupervisorEvent ev) = do
   case ev of
-    (ActorSpawned gChildActorDef) ->
-      void $ addChildActor actor st gChildActorDef
-
-    (TerminateChildFromSupervisor childKey) -> do
+    (TerminateChildFromSupervisor childKey) ->
       terminateChildFromSupervisor actor st childKey
 
-    (ActorTerminated childKey) ->
+    (ChildSpawned gChildActorDef) ->
+      void $ addChildActor actor st gChildActorDef
+
+    (ChildTerminated childKey) ->
       removeChildActor actor st childKey
 
-    (ActorFailedOnInitialize err _) ->
+    (ChildFailedOnInitialize err _) ->
       cleanupActorAndRaise actor st err
 
-    (ActorFailedWithError child prevChildSt failedEv err directive) ->
+    (ChildFailedWithError child prevChildSt failedEv err directive) ->
       restartChildActor actorDef actor st
                         child prevChildSt
                         failedEv err directive
@@ -426,25 +426,32 @@ handleActorLoopError actorDef actor err@(SomeException innerErr) st gev = do
       stopActorLoopAndRaise Restart actorDef actor err st gev
     Just (ErrorHandler errHandler) -> do
       restartDirective <-
-        runActorCtx $ unsafeCoerce $ errHandler (fromJust $ fromException err)
+        runActorCtx
+          $ unsafeCoerce
+          $ errHandler (fromJust $ fromException err)
+
       runActorCtx $
         Logger.traceF "Use restart directive '{}'"
                       (Only $ show restartDirective)
+
       case restartDirective of
         Resume -> do
           runActorCtx
-            $ Logger.noisyF "[error: {} {}] Resume actor" (show $ typeOf err, show err)
+            $ Logger.noisyF "[error: {} {}] Resume actor"
+                            (show $ typeOf err, show err)
           return st
         Stop -> do
           stopChildren actor
           void $ runActorCtx $ do
-            Logger.noisyF "[error: {} {}] Stop actor" (show $ typeOf err, show err)
+            Logger.noisyF "[error: {} {}] Stop actor"
+                          (show $ typeOf err, show err)
             unsafeCoerce $ _actorPostStop actorDef
           stopActorLoop actorDef
         Raise
           | _actorAbsoluteKey actor == "/user" -> do
             runActorCtx $
-              Logger.loudF "Raise in root actor, throwing error {}" (Only $ show err)
+              Logger.loudF "Raise in root actor, throwing error {}"
+                           (Only $ show err)
             throwIO err
         _ ->
           stopActorLoopAndRaise restartDirective actorDef actor err st gev
@@ -453,7 +460,7 @@ handleActorLoopError actorDef actor err@(SomeException innerErr) st gev = do
 
 stopActorLoop :: forall st. ActorDef st -> IO st
 stopActorLoop actorDef =
-  throwIO $ ActorTerminated (toActorKey actorDef)
+  throwIO $ ChildTerminated (toActorKey actorDef)
 
 ---
 
@@ -462,9 +469,7 @@ stopActorLoopAndRaise
   -> SomeException -> st -> GenericEvent
   -> IO st
 stopActorLoopAndRaise restartDirective actorDef actor err st gev = do
-  let runActorCtx =
-          evalReadOnlyActorM st actor
-
+  let runActorCtx = evalReadOnlyActorM st actor
   restartAllChildren actorDef actor st actor st gev err
 
   logError_
@@ -486,7 +491,7 @@ stopActorLoopAndRaise restartDirective actorDef actor err st gev = do
 
   runActorCtx $ Logger.noisy ("Notify parent to deal with error" :: String)
   throwIO
-    ActorFailedWithError {
+    ChildFailedWithError {
             _supEvTerminatedState = st
           , _supEvTerminatedFailedEvent = gev
           , _supEvTerminatedError = err
@@ -504,7 +509,7 @@ sendActorInitErrorToSupervisor actor err = do
     $ Logger.warnF "Child failed at initialization: {}"
                    (Only $ show err)
   throwIO
-    ActorFailedOnInitialize {
+    ChildFailedOnInitialize {
       _supEvTerminatedError = err
     , _supEvTerminatedActor = actor
     }

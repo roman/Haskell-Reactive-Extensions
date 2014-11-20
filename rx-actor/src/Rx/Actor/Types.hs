@@ -100,19 +100,19 @@ data ChildEvent
   deriving (Typeable)
 
 data SupervisorEvent
-  = ActorSpawned { _supEvInitActorDef :: !GenericActorDef }
+  = ChildSpawned { _supEvInitActorDef :: !GenericActorDef }
   | TerminateChildFromSupervisor { _supEvTerminatedActorKey :: !ChildKey }
-  | ActorTerminated {
+  | ChildTerminated {
       _supEvTerminatedActorDef :: !ChildKey
     }
-  | forall st . ActorFailedWithError {
+  | forall st . ChildFailedWithError {
       _supEvTerminatedActor       :: !Actor
     , _supEvTerminatedState       :: !st
     , _supEvTerminatedFailedEvent :: !GenericEvent
     , _supEvTerminatedError       :: !SomeException
     , _supEvTerminatedDirective   :: !RestartDirective
     }
-  | ActorFailedOnInitialize {
+  | ChildFailedOnInitialize {
       _supEvTerminatedError :: !SomeException
     , _supEvTerminatedActor :: !Actor
     }
@@ -266,6 +266,12 @@ instance HasActor PreActorM where
 
 --------------------
 
+normalizeActorKey :: String -> String
+normalizeActorKey = map replaceChar
+  where
+    replaceChar '/' = '_'
+    replaceChar ch  = ch
+
 instance ToActorKey String where
   toActorKey = id
 
@@ -304,20 +310,20 @@ instance ToDisposable Actor where
 --------------------
 
 instance Show SupervisorEvent where
-  show (ActorSpawned gActorDef) =
-    "ActorSpawned " ++ toActorKey gActorDef
+  show (ChildSpawned gActorDef) =
+    "ChildSpawned " ++ toActorKey gActorDef
   show (TerminateChildFromSupervisor childKey) =
     "TerminateChildFromSupervisor " ++ childKey
-  show (ActorTerminated actorKey) =
-    "ActorTerminated " ++ actorKey
-  show supEv@(ActorFailedWithError {}) =
+  show (ChildTerminated actorKey) =
+    "ChildTerminated " ++ actorKey
+  show supEv@(ChildFailedWithError {}) =
     let actorKey = toActorKey . _actorDef $ _supEvTerminatedActor supEv
         actorErr = _supEvTerminatedError supEv
-    in "ActorFailedWithError " ++ actorKey ++ " " ++ show actorErr
-  show supEv@(ActorFailedOnInitialize {}) =
+    in "ChildFailedWithError " ++ actorKey ++ " " ++ show actorErr
+  show supEv@(ChildFailedOnInitialize {}) =
     let actorKey = toActorKey . _actorDef $ _supEvTerminatedActor supEv
         actorErr = _supEvTerminatedError supEv
-    in "ActorFailedOnInitialize " ++ actorKey ++ " " ++ show actorErr
+    in "ChildFailedOnInitialize " ++ actorKey ++ " " ++ show actorErr
 
 instance Exception SupervisorEvent
 

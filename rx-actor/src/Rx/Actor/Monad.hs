@@ -53,12 +53,14 @@ spawnChild :: (MonadIO m, HasActor m)
            => ChildKey -> ActorBuilder childSt -> m ()
 spawnChild childKey childBuilder = do
   let childDef = defActor (childBuilder >> actorKey childKey)
-  sendSupervisionEvent (ActorSpawned $ GenericActorDef childDef)
+  sendSupervisionEvent (ChildSpawned $ GenericActorDef childDef)
 
 stopChild :: (MonadIO m, HasActor m)
           => ChildKey -> m ()
 stopChild childKey =
-  sendSupervisionEvent (TerminateChildFromSupervisor childKey)
+  sendSupervisionEvent
+  $ TerminateChildFromSupervisor
+  $ normalizeActorKey childKey
 
 --------------------------------------------------------------------------------
 

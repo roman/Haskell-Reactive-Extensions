@@ -1,19 +1,19 @@
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE RankNTypes                #-}
+{-# LANGUAGE ScopedTypeVariables       #-}
 module Rx.Actor.ActorBuilder where
 
-import Data.Typeable (Typeable)
 import Control.Concurrent.Async (Async, async, asyncBound)
 import Control.Exception (Exception, SomeException)
 import Control.Monad.Free
+import Data.Typeable (Typeable)
 
 import Tiempo (TimeInterval, microSeconds, seconds)
 
 import qualified Data.HashMap.Strict as HashMap
 
-import Rx.Actor.Util (getHandlerParamType1)
 import Rx.Actor.Types
+import Rx.Actor.Util (getHandlerParamType1)
 
 --------------------------------------------------------------------------------
 
@@ -64,12 +64,7 @@ type ActorBuilder st = Free (ActorBuilderF st) ()
 --------------------------------------------------------------------------------
 
 actorKey :: String -> ActorBuilder st
-actorKey key =
-    liftF $ SetActorKeyI (normalizeKey key) ()
-  where
-    replaceChar '/' = '_'
-    replaceChar ch  = ch
-    normalizeKey = map replaceChar
+actorKey key = liftF $ SetActorKeyI (normalizeActorKey key) ()
 
 startDelay :: TimeInterval -> ActorBuilder st
 startDelay delay = liftF $ SetStartDelayI delay ()
