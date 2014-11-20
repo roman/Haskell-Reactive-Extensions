@@ -17,15 +17,17 @@ module Rx.Logger.Types
 
 
 import Data.Typeable (Typeable)
-import GHC.Generics  (Generic)
+import GHC.Generics (Generic)
 
-import Control.Concurrent         (ThreadId)
-import Control.Monad.Trans        (MonadIO (..), lift)
+import Control.Concurrent (ThreadId)
+import Control.Monad.Trans (MonadIO (..), lift)
 import Control.Monad.Trans.Reader (ReaderT, ask, local, runReaderT)
 
+import Data.Text.Format (left)
+import Data.Text.Lazy.Builder (toLazyText)
+import Data.Time (UTCTime)
 import qualified Data.Text      as Text
 import qualified Data.Text.Lazy as LText
-import           Data.Time      (UTCTime)
 
 import Rx.Subject (Subject)
 
@@ -78,14 +80,14 @@ data LogLevel
   deriving (Eq, Ord, Enum, Bounded, Generic, Typeable)
 
 instance Show LogLevel where
-  show TRACE   = "TRACE  "
-  show LOUD    = "LOUD   "
-  show NOISY   = "NOISY  "
-  show CONFIG  = "CONFIG "
-  show INFO    = "INFO   "
-  show WARNING = "WARNING"
-  show SEVERE  = "SEVERE "
-  show NONE    = "NONE   "
+  show TRACE   = LText.unpack $ toLazyText $ left 6 ' ' "TRACE"
+  show LOUD    = LText.unpack $ toLazyText $ left 6 ' ' "LOUD"
+  show NOISY   = LText.unpack $ toLazyText $ left 6 ' ' "NOISY"
+  show CONFIG  = LText.unpack $ toLazyText $ left 6 ' ' "CONFIG"
+  show INFO    = LText.unpack $ toLazyText $ left 6 ' ' "INFO"
+  show WARNING = LText.unpack $ toLazyText $ left 6 ' ' "WARNING"
+  show SEVERE  = LText.unpack $ toLazyText $ left 6 ' ' "SEVERE"
+  show NONE    = LText.unpack $ toLazyText $ left 6 ' ' "NONE"
 
 --------------------------------------------------------------------------------
 -- * class definitions

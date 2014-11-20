@@ -1,10 +1,12 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Rx.Logger.Format where
 
-import           Data.Monoid      ((<>))
-import qualified Data.Text.Lazy   as LText
-import           Data.Time.Format (formatTime)
-import           System.Locale    (defaultTimeLocale)
+import Data.Monoid ((<>))
+import Data.Text.Format (format, left)
+import Data.Text.Lazy.Builder (toLazyText)
+import Data.Time.Format (formatTime)
+import System.Locale (defaultTimeLocale)
+import qualified Data.Text.Lazy as LText
 
 import Rx.Logger.Types
 
@@ -16,6 +18,8 @@ ttccFormat logEntry =
   LText.pack (formatTime defaultTimeLocale
                          "%m-%e-%Y %I:%M:%S %p %q"
                          $ _logEntryTimestamp logEntry)
-  <> " [" <> LText.pack (show $ _logEntryThreadId logEntry) <> "] "
+  <> " ["
+  <> toLazyText (left 12 ' ' . show $ _logEntryThreadId logEntry)
+  <> "] "
   <> LText.pack (show $ _logEntryLevel logEntry) <> " - "
   <> toLogMsg (_logEntryMsg logEntry)
