@@ -21,5 +21,6 @@ ttccFormat logEntry =
   <> " ["
   <> toLazyText (left 12 ' ' . show $ _logEntryThreadId logEntry)
   <> "] "
-  <> LText.pack (show $ _logEntryLevel logEntry) <> " - "
+  <> toLazyText (left 6 ' ' . show $ _logEntryLevel logEntry)
+  <> " - "
   <> toLogMsg (_logEntryMsg logEntry)
