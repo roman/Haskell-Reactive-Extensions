@@ -22,6 +22,13 @@ module Rx.Actor
        , newEventBus, emitOnActor
        -- ^ * Logger API
        , newLogger, Only(..)
+       , Logger.noisy, Logger.noisyF
+       , Logger.loud, Logger.loudF
+       , Logger.trace, Logger.traceF
+       , Logger.config, Logger.configF
+       , Logger.info, Logger.infoF
+       , Logger.warn, Logger.warnF
+       , Logger.severe, Logger.severeF
        -- ^ * Extra API
        , MonadIO(..), dispose, onNext
        ) where
