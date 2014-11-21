@@ -11,9 +11,11 @@ import Control.Monad.Trans (liftIO)
 import Control.Concurrent (myThreadId, yield)
 import Control.Concurrent.Async (cancel, link, wait)
 import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, takeMVar)
-import Control.Concurrent.STM (TChan, TVar, atomically, modifyTVar, newTChanIO, newTVarIO,
-                               orElse, readTChan, readTVar, writeTChan)
-import Control.Exception (SomeException (..), catch, fromException, throwIO, try)
+import Control.Concurrent.STM (TChan, TVar, atomically, modifyTVar, newTChanIO,
+                               newTVarIO, orElse, readTChan, readTVar,
+                               writeTChan)
+import Control.Exception (SomeException (..), catch, fromException, throwIO,
+                          try)
 
 import GHC.Conc (labelThread)
 
@@ -26,8 +28,9 @@ import Tiempo.Concurrent (threadDelay)
 
 import Unsafe.Coerce (unsafeCoerce)
 
-import Rx.Disposable (CompositeDisposable, Disposable, createDisposable, dispose,
-                      emptyDisposable, newCompositeDisposable, toDisposable)
+import Rx.Disposable (CompositeDisposable, Disposable, createDisposable,
+                      dispose, emptyDisposable, newCompositeDisposable,
+                      toDisposable)
 import Rx.Observable (scanLeftItemM, subscribe, toAsyncObservable)
 
 import qualified Rx.Disposable as Disposable
@@ -532,18 +535,18 @@ startChildActor
   :: StartStrategy -> ParentActor -> IO ChildActor
 startChildActor strategy actor = do
   let gChildActorDef = _startStrategyActorDef strategy
-      childActorKey = toActorKey gChildActorDef
+      childKey = toActorKey gChildActorDef
   child <- spawnChildActor strategy actor
   atomically
     $ modifyTVar (_actorChildren actor)
-    $ HashMap.insertWith (\_ _ -> child) childActorKey child
+    $ HashMap.insertWith (\_ _ -> child) childKey child
   return child
 
 addChildActor :: forall st. Actor -> st -> GenericActorDef -> IO ChildActor
 addChildActor actor actorSt gChildActorDef = do
   let runActorCtx = evalReadOnlyActorM actorSt actor
-      childActorKey = toActorKey gChildActorDef
-  runActorCtx $ Logger.noisyF "Starting new actor {}" (Only childActorKey)
+      childKey = toActorKey gChildActorDef
+  runActorCtx $ Logger.noisyF "Starting new actor {}" (Only childKey)
   startChildActor (ViaPreStart gChildActorDef) actor
 
 restartSingleChild
@@ -610,8 +613,10 @@ restartChildActor actorDef actor actorSt
                       ( show $ typeOf err0, show err0, toActorKey child)
       dispose child
       unsafeCoerce $ handleActorLoopError actorDef actor serr actorSt failedEv
+
     RestartOne _ ->
       restartSingleChild actorDef actor actorSt child prevChildSt failedEv serr
+
     Restart -> do
       runActorCtx $
         Logger.traceF "Restart child {} from error '{} {}'"
@@ -621,6 +626,7 @@ restartChildActor actorDef actor actorSt
               OneForOne -> restartSingleChild
               AllForOne -> restartAllChildren
       restarter actorDef actor actorSt child prevChildSt failedEv serr
+
     _ -> do
       let errMsg = "FATAL: Restart Actor procedure received " ++
                    "an unexpected directive " ++ show directive
@@ -631,32 +637,31 @@ removeChildActor :: forall st child. ToActorKey child
                  => Actor -> st -> child -> IO ()
 removeChildActor actor actorSt child = do
   let runActorCtx = evalReadOnlyActorM actorSt actor
-      childActorKey = toActorKey child
+      childKey = toActorKey child
   wasRemoved <- atomically $ do
     childMap <- readTVar $ _actorChildren actor
-    case HashMap.lookup childActorKey childMap of
+    case HashMap.lookup childKey childMap of
       Nothing -> return False
       Just _ -> do
-        modifyTVar (_actorChildren actor) $ HashMap.delete childActorKey
+        modifyTVar (_actorChildren actor) $ HashMap.delete childKey
         return True
   when wasRemoved $
     runActorCtx $
-      Logger.noisyF "Removing child {}" (Only childActorKey)
+      Logger.noisyF "Removing child {}" (Only childKey)
 
 terminateChildFromSupervisor :: forall st. Actor -> st -> ChildKey -> IO ()
-terminateChildFromSupervisor actor actorSt childActorKey = do
+terminateChildFromSupervisor actor actorSt childKey = do
   let runActorCtx = evalReadOnlyActorM actorSt actor
-  mChild <- atomically $ do
-    childMap <- readTVar $ _actorChildren actor
-    return $ HashMap.lookup childActorKey childMap
-  runActorCtx $
-    Logger.noisyF "Send ActorStopped to child '{}' from parent" (Only childActorKey)
+  mChild <- lookupChild childKey actor
   case mChild of
     Nothing ->
       runActorCtx $
-        Logger.warnF "Tried to stop actor '{}' but it didn't exist"
-                     (Only childActorKey)
-    Just child -> sendChildEventToActor child ActorStopped
+        Logger.warnF "Tried to stop child '{}' but it didn't exist"
+                     (Only childKey)
+    Just child -> do
+      runActorCtx $
+        Logger.noisyF "Stop child '{}' from parent" (Only childKey)
+      stopChild child
 
 
 cleanupActorAndRaise :: forall st. Actor -> st -> SomeException -> IO ()
@@ -670,16 +675,28 @@ cleanupActorAndRaise actor actorSt serr@(SomeException err) = do
 
 --------------------------------------------------------------------------------
 
+lookupChild :: ChildKey -> Actor -> IO (Maybe ChildActor)
+lookupChild childKey actor =
+  atomically (HashMap.lookup childKey <$> readTVar (_actorChildren actor))
+{-# INLINE lookupChild #-}
+
 onChildren :: (ChildActor -> IO ()) -> ParentActor -> IO ()
 onChildren onChildFn parent = do
   childMap <- atomically $ readTVar $ _actorChildren parent
   mapM_ onChildFn (HashMap.elems childMap)
+{-# INLINE onChildren #-}
+
+stopChild :: ChildActor -> IO ()
+stopChild = (`sendChildEventToActor` ActorStopped)
+{-# INLINE stopChild #-}
 
 stopChildren :: ParentActor -> IO ()
-stopChildren = onChildren (`sendChildEventToActor` ActorStopped)
+stopChildren = onChildren stopChild
+{-# INLINE stopChildren #-}
 
 disposeChildren :: ParentActor -> IO ()
 disposeChildren = onChildren dispose
+{-# INLINE disposeChildren #-}
 
 --------------------------------------------------------------------------------
 

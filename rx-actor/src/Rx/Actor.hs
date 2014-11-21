@@ -47,7 +47,7 @@ import qualified Control.Monad.State  as State
 
 import Rx.Actor.ActorBuilder
 import Rx.Actor.EventBus
-import Rx.Actor.Internal
+import Rx.Actor.Internal hiding (stopChild)
 import Rx.Actor.Monad
 import Rx.Actor.Types
 
