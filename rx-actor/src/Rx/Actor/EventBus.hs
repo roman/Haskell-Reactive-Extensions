@@ -72,16 +72,6 @@ mapEvent fn = Observable.map castEvent_
         Just ev -> toGenericEvent $ fn ev
         Nothing -> gev
 
-castEvent :: (IObservable observable, Typeable a)
-          => observable s GenericEvent
-          -> Observable s a
-castEvent = Observable.concatMap castEvent_
-  where
-    castEvent_ gev =
-      case fromGenericEvent gev of
-        Just ev -> [ev]
-        Nothing -> []
-
 filterEvent :: (IObservable observable, Typeable a)
             => (a -> Bool)
             -> observable s GenericEvent
@@ -93,13 +83,15 @@ filterEvent fn = Observable.filter castEvent_
         Just ev -> fn ev
         Nothing -> True
 
-filterActorEvents :: (IObservable observable)
-                  => ActorDef st
-                  -> observable s GenericEvent
-                  -> Observable s GenericEvent
-filterActorEvents actorDef = Observable.filter doesActorHandlesEvent
+castFromGenericEvent
+  :: (IObservable observable, Typeable a)
+  => observable s GenericEvent
+  -> Observable s a
+castFromGenericEvent = Observable.concatMap castEvent_
   where
-    actorHandlerTypes = Set.fromList . HashMap.keys $ _actorReceive actorDef
-    doesActorHandlesEvent gev = Set.member (typeOfEvent gev) actorHandlerTypes
+    castEvent_ gev =
+      case fromGenericEvent gev of
+        Just ev -> [ev]
+        Nothing -> []
 
 --------------------------------------------------------------------------------
