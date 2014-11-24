@@ -4,13 +4,15 @@ module Rx.Observable.Types where
 
 import Data.Typeable (Typeable)
 
-import Control.Exception (AsyncException (ThreadKilled), Exception (..), Handler (..),
-                          SomeException, catches, throw, throwIO)
+import Control.Exception (AsyncException (ThreadKilled), Exception (..),
+                          Handler (..), SomeException, catch, catches, throw,
+                          throwIO)
 import Control.Monad (forever, void)
 
 
 import Control.Concurrent.Async (Async)
-import Control.Concurrent.STM (TChan, atomically, readTChan)
+import Control.Concurrent.STM (TChan, atomically, newTChanIO, readTChan,
+                               writeTChan)
 
 import Rx.Disposable (Disposable, emptyDisposable, newCompositeDisposable,
                       newSingleAssignmentDisposable)
@@ -87,6 +89,26 @@ instance ToObserver Subject where
 instance ToAsyncObservable Subject where
   toAsyncObservable = Observable . _subjectOnSubscribe
   {-# INLINE toAsyncObservable #-}
+
+instance ToSyncObservable Subject where
+  toSyncObservable subject = Observable $ \observer -> do
+      chan <- newTChanIO
+      disposable <- newSingleAssignmentDisposable
+      innerDisposable <-
+        subscribeObserver
+                  (toAsyncObservable subject)
+                  (Observer $ atomically . writeTChan chan)
+      Disposable.set innerDisposable disposable
+      syncLoop observer chan
+        `catch` onError observer
+      return $ Disposable.toDisposable disposable
+    where
+      syncLoop observer chan =
+        forever $ do
+          notification <- atomically $ readTChan chan
+          emitNotification observer notification
+
+
 
 instance IObserver Subject where
   emitNotification = _subjectOnEmitNotification
