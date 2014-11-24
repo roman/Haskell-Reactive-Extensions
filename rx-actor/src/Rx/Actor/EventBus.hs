@@ -7,14 +7,14 @@ import Data.Typeable (Typeable, cast, typeOf)
 
 
 import qualified Data.HashMap.Strict as HashMap
-import qualified Data.Set as Set
+import qualified Data.Set            as Set
 
-import Rx.Observable ( Disposable, IObserver, IObservable, Observable
-                     , onNext, subscribe, toAsyncObservable )
+import Rx.Observable (Disposable, IObservable, IObserver, Observable, onNext,
+                      subscribe, toAsyncObservable)
 import qualified Rx.Observable as Observable
 
-import Rx.Actor.Util (getHandlerParamType1)
 import Rx.Actor.Types
+import Rx.Actor.Util (getHandlerParamType1)
 
 --------------------------------------------------------------------------------
 
@@ -65,20 +65,30 @@ mapEvent :: (IObservable observable, Typeable a, Typeable b)
          => (a -> b)
          -> observable s GenericEvent
          -> Observable s GenericEvent
-mapEvent fn = Observable.map castEvent
+mapEvent fn = Observable.map castEvent_
   where
-    castEvent gev =
+    castEvent_ gev =
       case fromGenericEvent gev of
         Just ev -> toGenericEvent $ fn ev
         Nothing -> gev
+
+castEvent :: (IObservable observable, Typeable a)
+          => observable s GenericEvent
+          -> Observable s a
+castEvent = Observable.concatMap castEvent_
+  where
+    castEvent_ gev =
+      case fromGenericEvent gev of
+        Just ev -> [ev]
+        Nothing -> []
 
 filterEvent :: (IObservable observable, Typeable a)
             => (a -> Bool)
             -> observable s GenericEvent
             -> Observable s GenericEvent
-filterEvent fn = Observable.filter castEvent
+filterEvent fn = Observable.filter castEvent_
   where
-    castEvent gev =
+    castEvent_ gev =
       case fromGenericEvent gev of
         Just ev -> fn ev
         Nothing -> True

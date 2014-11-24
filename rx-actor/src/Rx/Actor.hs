@@ -19,7 +19,7 @@ module Rx.Actor
        , Reader.ask, actorLogMsg
        -- ^ * EventBus API
        , fromGenericEvent, toGenericEvent, emitEvent, typeOfEvent, filterEvent, mapEvent
-       , newEventBus, emitOnActor
+       , newEventBus, emitOnActor, castEvent
        -- ^ * Logger API
        , newLogger, Only(..)
        , Logger.noisy, Logger.noisyF
