@@ -60,7 +60,6 @@ library
     Rx.Observable.Interval,
     Rx.Observable.List,
     Rx.Observable.Map,
-    Rx.Observable.MapReduce,
     Rx.Observable.Maybe,
     Rx.Observable.Merge,
     Rx.Observable.Repeat,
