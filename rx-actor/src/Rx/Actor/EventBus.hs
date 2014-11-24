@@ -7,7 +7,6 @@ import Data.Typeable (Typeable, cast, typeOf)
 
 
 import qualified Data.HashMap.Strict as HashMap
-import qualified Data.Set            as Set
 
 import Rx.Observable (Disposable, IObservable, IObserver, Observable, onNext,
                       subscribe, toAsyncObservable)

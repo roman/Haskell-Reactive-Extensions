@@ -4,11 +4,12 @@ module Rx.Observable.Zip where
 import Control.Concurrent (yield)
 import Prelude hiding (zip, zipWith)
 
-import Control.Concurrent.STM (TQueue, atomically, isEmptyTQueue, modifyTVar, newTQueueIO,
-                               newTVarIO, readTQueue, readTVar, writeTQueue, writeTVar)
+import Control.Concurrent.STM (TQueue, atomically, isEmptyTQueue, modifyTVar,
+                               newTQueueIO, newTVarIO, readTQueue, readTVar,
+                               writeTQueue, writeTVar)
 import Control.Monad (unless, when)
 
-import Rx.Disposable (dispose, newCompositeDisposable, toDisposable)
+import Rx.Disposable (newCompositeDisposable, toDisposable)
 import Rx.Scheduler (Async)
 import qualified Rx.Disposable as Disposable
 

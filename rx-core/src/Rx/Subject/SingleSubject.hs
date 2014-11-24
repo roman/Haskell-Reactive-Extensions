@@ -15,7 +15,6 @@ import qualified Control.Concurrent.STM.TVar   as TVar
 
 import Rx.Disposable (createDisposable, emptyDisposable)
 import Rx.Observable.Types
-import qualified Rx.Disposable   as Disposable
 import qualified Rx.Notification as Notification
 
 --------------------------------------------------------------------------------

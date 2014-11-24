@@ -18,7 +18,7 @@ import Control.Concurrent (yield)
 import Control.Concurrent.Async (async, cancelWith)
 import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TChan (newTChanIO, readTChan, writeTChan)
-import Control.Concurrent.STM.TVar (newTVarIO, readTVar, writeTVar)
+import Control.Concurrent.STM.TVar (newTVarIO, readTVar)
 
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Unique         as Unique
