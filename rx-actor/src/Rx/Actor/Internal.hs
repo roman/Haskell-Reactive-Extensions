@@ -47,7 +47,7 @@ import Rx.Actor.Monad (evalReadOnlyActorM, execActorM, runPreActorM)
 import Rx.Actor.Types
 import Rx.Actor.Util (logError, logError_)
 
---------------------------------------------------------------------------------
+-------------------- * Root Actor functions * ------------------------
 
 startRootActor :: forall st. Logger -> EventBus -> ActorDef st -> IO Actor
 startRootActor logger evBus actorDef = do
@@ -94,7 +94,8 @@ spawnChildActor strategy parent = do
                childQueue
                supQueue
 
--------------------- * Child Creation functions * --------------------
+
+-------------------- * Core Actor functions * -----------------------
 
 spawnActor :: StartStrategy
            -> Maybe ParentActor
@@ -226,7 +227,7 @@ newActor parent actorDef actor = do
     eResult <-
       try
         $ runPreActorM actor
-                       (do Logger.trace ("Calling preStart on actor" :: String)
+                       (do Logger.info ("Calling preStart on actor" :: String)
                            _actorPreStart actorDef)
     case eResult of
       Left err ->
@@ -249,7 +250,7 @@ restartActor parent actorDef actor oldSt err gev = do
   result <-
     logError $
        evalReadOnlyActorM oldSt actor
-                          (do Logger.trace ("Calling postRestart on actor" :: String)
+                          (do Logger.info ("Calling postRestart on actor" :: String)
                               unsafeCoerce $ _actorPostRestart actorDef err gev)
   case result of
     -- TODO: Do a warning with the error
@@ -298,11 +299,11 @@ startActorLoop mparent actorDef actor st0 = do
               throwIO $ _supEvTerminatedError err
             Just err -> do
               let errMsg = "Unhandled SupervisorEvent received " ++ show err
-              runActorCtx $ Logger.warn errMsg
+              runActorCtx $ Logger.severe errMsg
             Nothing -> do
               let errMsg = "Actor loop received non-supervisor error "
                            ++ show serr
-              runActorCtx $ Logger.warn errMsg
+              runActorCtx $ Logger.severe errMsg
               throwIO err0
         Just parent ->
           case fromException serr of
@@ -480,10 +481,10 @@ stopActorLoopAndRaise restartDirective actorDef actor err st gev = do
     $ unsafeCoerce
     $ case restartDirective of
         Stop -> do
-          Logger.trace ("Calling postStop on actor" :: String)
+          Logger.info ("Calling postStop on actor" :: String)
           _actorPostStop actorDef
         Restart -> do
-          Logger.trace ("Calling preRestart on actor" :: String)
+          Logger.info ("Calling preRestart on actor" :: String)
           _actorPreRestart actorDef err gev
         RestartOne failingActorKey
           | _actorAbsoluteKey actor /= failingActorKey ->
