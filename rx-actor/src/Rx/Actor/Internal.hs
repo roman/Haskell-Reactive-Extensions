@@ -484,7 +484,7 @@ stopActorLoopAndRaise restartDirective actorDef actor err st gev = do
           Logger.info ("Calling postStop on actor" :: String)
           _actorPostStop actorDef
         Restart -> do
-          Logger.info ("Calling preRestart on actor" :: String)
+          Logger.info $ "Calling preRestart on actor (error: " ++ show err ++ ")"
           _actorPreRestart actorDef err gev
         RestartOne failingActorKey
           | _actorAbsoluteKey actor /= failingActorKey ->
