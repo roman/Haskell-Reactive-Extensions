@@ -49,6 +49,12 @@ emit ev = do
   evBus <- getEventBus
   liftIO $ onNext evBus $ toGenericEvent ev
 
+selfEnqueue :: (MonadIO m, HasActor m, Typeable ev) => ev -> m ()
+selfEnqueue ev = do
+  actor <- getActor
+  liftIO $ atomically
+         $ writeTChan (_actorGenericEvQueue actor) (toGenericEvent ev)
+
 spawnChild :: (MonadIO m, HasActor m)
            => ChildKey -> ActorBuilder childSt -> m ()
 spawnChild childKey childBuilder = do
