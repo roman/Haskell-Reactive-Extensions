@@ -39,10 +39,18 @@ sendSupervisionEvent ev = do
   liftIO . atomically $ writeTChan (_actorSupEvQueue actor) ev
 
 
-modifyState :: (st -> st) -> ActorM st ()
-modifyState fn = ActorM $ do
+modifyState_ :: (st -> st) -> ActorM st ()
+modifyState_ fn = ActorM $ do
   (st, actor) <- State.get
   State.put (fn st, actor)
+
+
+modifyState :: (st -> st) -> ActorM st st
+modifyState fn = ActorM $ do
+  (st, actor) <- State.get
+  let st' = fn st
+  State.put (st', actor)
+  return st'
 
 emit :: (MonadIO m, HasActor m, Typeable ev) => ev -> m ()
 emit ev = do
