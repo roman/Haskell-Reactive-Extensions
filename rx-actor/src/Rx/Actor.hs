@@ -11,13 +11,13 @@ module Rx.Actor
        , SupervisorStrategy(..), ActorEvent(..), Typeable, Logger
        -- ^ * Actor API
        , defActor, actorKey, preStart, postStop, preRestart, postRestart
-       , onError, desc, receive, useBoundThread, decorateEventBus, startDelay
-       , strategy, backoff, maxRestarts, addChild, stopDelay
+       , onError, desc, receive, receiveAndEmit, useBoundThread, decorateEventBus
+       , startDelay, strategy, backoff, maxRestarts, addChild, stopDelay
        , startRootActor, stopRootActor, joinRootActor
        -- ^ * ActorM API
-       , getActorKey, getEventBus, getLogger, setState, modifyState
+       , getActorKey, getEventBus, getLogger, setState, modifyState, modifyState_
        , emit, spawnChild, stopChild, State.put, State.get, State.modify
-       , Reader.ask, actorLogMsg
+       , Reader.ask, actorLogMsg, selfEnqueue
        -- ^ * EventBus API
        , fromGenericEvent, toGenericEvent, emitEvent, typeOfEvent, filterEvent, mapEvent
        , newEventBus, emitOnActor, castFromGenericEvent
