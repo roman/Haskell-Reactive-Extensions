@@ -79,7 +79,7 @@ data ErrorHandler st
     => ErrorHandler (e -> RO_ActorM st RestartDirective)
 
 data InitResult st
-  = InitOk st
+  = InitOk !st
   | InitFailure SomeException
   deriving (Show, Typeable)
 
