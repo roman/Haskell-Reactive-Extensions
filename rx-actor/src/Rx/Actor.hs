@@ -1,6 +1,7 @@
 {-# LANGUAGE DeriveDataTypeable         #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings          #-}
+{-# LANGUAGE RankNTypes                 #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
 module Rx.Actor
        (
@@ -55,6 +56,14 @@ import Rx.Actor.Types
 
 newEventBus :: IO EventBus
 newEventBus = newPublishSubject
+
+receiveAndEmit
+  :: forall a b st . (Typeable a, Typeable b)
+  => (a -> ActorM st [b])
+  -> ActorBuilder st
+receiveAndEmit mapFn = receive $ \a -> do
+  bs <- mapFn a
+  mapM_ (\b -> b `seq` emit b) bs
 
 emitOnActor :: Typeable ev => ev -> Actor -> IO ()
 emitOnActor ev actor = do
