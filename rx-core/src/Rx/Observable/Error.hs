@@ -3,8 +3,7 @@ module Rx.Observable.Error where
 
 import Control.Exception (Exception, fromException)
 
-import Rx.Disposable (newBooleanDisposable, toDisposable)
-import qualified Rx.Disposable as Disposable
+import Rx.Disposable (newBooleanDisposable, setDisposable, toDisposable)
 
 import Rx.Observable.Types
 
@@ -54,10 +53,10 @@ onErrorResumeNext !errSource !source =
                           (onNext observer)
                           (onError observer)
                           (onCompleted observer)
-              Disposable.set errDisposable sourceDisposable)
+              setDisposable sourceDisposable errDisposable)
           (onCompleted observer)
 
-    Disposable.set rootDisposable sourceDisposable
+    setDisposable sourceDisposable rootDisposable
     return $ toDisposable sourceDisposable
 {-# INLINE onErrorResumeNext #-}
 
@@ -77,5 +76,5 @@ retry !attempts !source = Observable $ \observer -> do
                        then retry_ sourceDisposable observer (pred attempt)
                        else onError observer err)
                   (onCompleted observer)
-      Disposable.set disposable sourceDisposable
+      setDisposable sourceDisposable disposable
 {-# INLINE retry #-}

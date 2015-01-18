@@ -13,7 +13,7 @@ import Control.Concurrent.STM (atomically)
 import qualified Control.Concurrent.STM.TQueue as TQueue
 import qualified Control.Concurrent.STM.TVar   as TVar
 
-import Rx.Disposable (createDisposable, emptyDisposable)
+import Rx.Disposable (newDisposable, emptyDisposable)
 import Rx.Observable.Types
 import qualified Rx.Notification as Notification
 
@@ -61,8 +61,9 @@ _newSingleSubject queueOnEmpty = do
                maybe (emitQueuedNotifications observer) onCompleted prevObserver
                atomically
                  $ TVar.modifyTVar observerVar (const $ Just observer)
-               createDisposable
-                 $ atomically $ TVar.writeTVar observerVar Nothing
+               newDisposable "SingleSubject.subscribe"
+                 $ atomically
+                 $ TVar.writeTVar observerVar Nothing
 
         singleEmitNotification (OnError err) = do
           atomically $ TVar.writeTVar completedVar True

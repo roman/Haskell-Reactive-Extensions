@@ -23,7 +23,7 @@ import Control.Concurrent.STM.TVar (newTVarIO, readTVar)
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Unique         as Unique
 
-import Rx.Disposable (createDisposable, emptyDisposable)
+import Rx.Disposable (newDisposable, emptyDisposable)
 import Rx.Observable.Types
 import qualified Rx.Notification as Notification
 
@@ -100,7 +100,7 @@ create = do
             else do
               subId <- Unique.hashUnique <$> Unique.newUnique
               atomically $ writeTChan subjChan (OnSubscribe subId observer)
-              createDisposable
+              newDisposable "PublishSubject.subscribe"
                 $ atomically
                 $ writeTChan subjChan (OnDispose subId)
 

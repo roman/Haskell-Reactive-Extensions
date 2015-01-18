@@ -4,12 +4,10 @@ module Rx.Logger.Serializer where
 import Control.Exception (throw)
 import Control.Monad     (when)
 
+import Data.Monoid ((<>))
 import qualified Data.Text.Lazy.IO as LText
 
-
-import           Rx.Disposable (Disposable, createDisposable,
-                                newCompositeDisposable)
-import qualified Rx.Disposable as Disposable
+import           Rx.Disposable (Disposable, newDisposable)
 import qualified Rx.Observable as Ob
 
 import System.IO (BufferMode (LineBuffering), Handle, IOMode (AppendMode),
@@ -38,10 +36,9 @@ serializeToFile :: (Ob.IObservable logger)
                 -> logger Ob.Async LogEntry
                 -> IO Disposable
 serializeToFile filepath entryF source = do
-  allDisposables <- newCompositeDisposable
   handle <- openFile filepath AppendMode
   hSetBuffering handle LineBuffering
-  loggerSub <-
+  loggerSubDisp <-
     Ob.subscribe source
                 (\output -> do
                     isOpen <- hIsOpen handle
@@ -51,6 +48,5 @@ serializeToFile filepath entryF source = do
                 (hClose handle)
 
 
-  Disposable.append loggerSub allDisposables
-  createDisposable (hClose handle) >>= flip Disposable.append allDisposables
-  return $ Disposable.toDisposable allDisposables
+  fileDisp <- newDisposable "Rx.Logger.serializeToFile" (hClose handle) 
+  return $ loggerSubDisp <> fileDisp

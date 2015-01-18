@@ -1,13 +1,15 @@
 module Rx.Observable.Timeout where
 
+import Data.Monoid (mappend)
+
 import Control.Exception (toException)
-import Control.Monad (when)
+import Control.Monad (void, when)
 
 import Tiempo (TimeInterval, seconds)
 
-import Rx.Disposable (dispose, newBooleanDisposable, newCompositeDisposable,
-                      newSingleAssignmentDisposable, toDisposable)
-import qualified Rx.Disposable as Disposable
+import Rx.Disposable (dispose, newBooleanDisposable,
+                      newSingleAssignmentDisposable, setDisposable,
+                      toDisposable)
 
 import Rx.Scheduler (Async, Scheduler, newThread, scheduleTimed)
 
@@ -61,13 +63,10 @@ timeoutWith modFn source =
       subscription <-
         main sourceDisposable timerDisposable observer
 
-      Disposable.set subscription sourceDisposable
+      setDisposable sourceDisposable subscription
 
-      allDisposables <- newCompositeDisposable
-      Disposable.append (toDisposable sourceDisposable) allDisposables
-      Disposable.append (toDisposable timerDisposable) allDisposables
-
-      return $ toDisposable allDisposables
+      return $ toDisposable sourceDisposable `mappend`
+               toDisposable timerDisposable
   where
     defOpts = TimeoutOptions {
         _timeoutInterval = seconds 0
@@ -92,9 +91,9 @@ timeoutWith modFn source =
         resetTimeout = do
           timer <- scheduleTimed scheduler interval $ do
             onTimeout
-            dispose sourceDisposable
+            void $ dispose sourceDisposable
           -- This will automatically dispose the previous timer
-          Disposable.set timer timerDisposable
+          setDisposable timerDisposable timer
 
         onNext_ v = do
           onNext observer v

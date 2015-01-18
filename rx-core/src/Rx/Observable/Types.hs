@@ -2,6 +2,7 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 module Rx.Observable.Types where
 
+import Data.Monoid (mappend)
 import Data.Typeable (Typeable)
 
 import Control.Exception (AsyncException (ThreadKilled), Exception (..),
@@ -14,9 +15,8 @@ import Control.Concurrent.Async (Async)
 import Control.Concurrent.STM (TChan, atomically, newTChanIO, readTChan,
                                writeTChan)
 
-import Rx.Disposable (Disposable, emptyDisposable, newCompositeDisposable,
-                      newSingleAssignmentDisposable)
-import qualified Rx.Disposable as Disposable
+import Rx.Disposable (Disposable, emptyDisposable, toDisposable,
+                      newSingleAssignmentDisposable, setDisposable)
 
 import Rx.Scheduler (IScheduler, Sync, newThread, schedule)
 import qualified Rx.Scheduler as Rx (Async)
@@ -98,10 +98,10 @@ instance ToSyncObservable Subject where
         subscribeObserver
                   (toAsyncObservable subject)
                   (Observer $ atomically . writeTChan chan)
-      Disposable.set innerDisposable disposable
+      setDisposable disposable innerDisposable 
       syncLoop observer chan
         `catch` onError observer
-      return $ Disposable.toDisposable disposable
+      return $ toDisposable disposable
     where
       syncLoop observer chan =
         forever $ do
@@ -200,14 +200,11 @@ createObservable :: IScheduler scheduler
                  -> (Observer a -> IO Disposable)
                  -> Observable s a
 createObservable !scheduler !action = Observable $ \observer -> do
-  obsDisposable    <- newCompositeDisposable
   actionDisposable <- newSingleAssignmentDisposable
   threadDisposable <-
-    schedule scheduler $ action observer >>=
-      flip Disposable.set actionDisposable
+    schedule scheduler (action observer >>=
+                        setDisposable actionDisposable)
 
-  Disposable.append threadDisposable obsDisposable
-  Disposable.append actionDisposable obsDisposable
-
-  return $ Disposable.toDisposable obsDisposable
+  return $ threadDisposable `mappend`
+           toDisposable actionDisposable
 {-# INLINE createObservable #-}

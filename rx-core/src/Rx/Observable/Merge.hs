@@ -11,8 +11,8 @@ import Data.Traversable (mapM)
 import Data.Unique (hashUnique, newUnique)
 import qualified Data.HashMap.Strict as HashMap
 
-import Rx.Disposable (createDisposable, dispose, newSingleAssignmentDisposable)
-import qualified Rx.Disposable as Disposable
+import Rx.Disposable (dispose, newDisposable, newSingleAssignmentDisposable,
+                      setDisposable)
 
 import Rx.Scheduler (Async, newThread)
 
@@ -39,12 +39,12 @@ merge sources = Observable $ \outerObserver -> do
         sourceSubDisposable <-
           subscribe sources sourceOnNext sourceOnError sourceOnCompleted
 
-        sourceDisposable <- createDisposable $ do
+        sourceDisposable <- newDisposable "Observable.merge" $ do
           dispose sourceSubDisposable
           disposableMap <- atomically $ readTVar disposableMapVar
           void $ mapM dispose disposableMap
 
-        Disposable.set sourceDisposable mainDisposable
+        setDisposable mainDisposable sourceDisposable
         return sourceDisposable
       where
         sourceOnNext source = do
@@ -82,7 +82,7 @@ merge sources = Observable $ \outerObserver -> do
         onError_ sourceIdVar err = do
           _ <- takeMVar sourceIdVar
           onError outerObserver err
-          dispose mainDisposable
+          void $ dispose mainDisposable
 
         onCompleted_ sourceIdVar = do
           sourceId <- takeMVar sourceIdVar

@@ -1,149 +1,156 @@
--- Module: Rx.Disposable
--- Copyright: (c) 2014 Roman Gonzalez
--- (c) 2014 Birdseye Software, Inc.
--- License: MIT
-{-|
-
-Disposables are an approach to manage a one time cleanup of resources
-by composing them together with various primitives. This library
-provides 4 different kind of Disposables:
-
-* @Disposable@
-* @BooleanDisposable@
-* @SingleAssignmentDisposable@
-* @CompositeDisposable@
-
-All of them implement a common classtype @IDisposable@ which responsability
-is to provide a @dispose@ function. This function will perform a cleanup
-@IO@ action when called. Let's get started with the _raison-d'etre_ of each
-@Disposable@ type:
-
-
-* @Disposable@
-
-This is the most common (and general) type of @IDisposable@, it
-contains an @IO@ action that is executed when @dispose@ is called on
-it. There are three different ways to create values of this type:
-
-  - @createDisposable@ - receives an IO action and returns a @Disposable@
-  - @emptyDisposable@ - returns a @Disposable@ that does nothing
-  - @toDisposable@ - transforms any other @IDisposable@ into a @Disposable@
-
-
-* @BooleanDisposable@
-
-Serves as a wrapper of a common @Disposable@, it can hold one
-@Disposable@ at a time, which can be replaced many times, however,
-each time a new inner @Disposable@ is set, the old one is disposed
-immediately. This serves useful when an action is done by many
-entities that produce a Disposable, but there is only one working at a
-time. There are 3 functions related to this type:
-
-  - @newBooleanDisposable@ - creates an empty @BooleanDisposable@
-  - @set@ - Sets a new @Disposable@ as the wrapped disposable
-  - @get@ - Returns the original wrapped @Disposable@
-
-* @SingleAssignmentDisposable@
-
-A wrapper @IDisposable@ as the @BooleanDisposable@, it's main
-difference is that it allows the @set@ function to be called only
-once. This type is very useful when the disposable reference is needed
-from an async Observable, so that the Observable can dispose itself on
-certain conditions. There are 3 functions related to this type:
-
-  - @newSingleAssignmentDisposable@ - creates an empty @SingleAssignmentDisposable@
-  - @set@ - Sets a new @Disposable@ as the wrapped disposable. This can be
-            called only once.
-  - @get@ - Returns the original wrapped @Disposable@
-
-* @CompositeDisposable@
-
-As it's name suggest, this @IDisposable@ holds a collection of
-@Disposable@ records internally. When @dispose@ is called on it all
-its @Disposable@ children are cleaned up. The order in which they are
-disposed is in the same order they were appended to the
-@CompositeDisposable@. There are 2 functions related to this type:
-
-  - @newCompositeDisposable@ - creates an empty @CompositeDisposable@
-  - @append@ - Appends a new @Disposable@ to the disposable children list
-
-
--}
+{-# LANGUAGE DeriveDataTypeable         #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Rx.Disposable
-       ( IDisposable(..)
-       , IDisposableContainer (..)
-       , IDisposableWrapper (..)
-       , ToDisposable(..)
+       ( emptyDisposable
+       , disposeCount
+       , disposeErrorCount
+       , disposeErrorList
+       , disposeActionList
+       , newDisposable
+       , newBooleanDisposable
+       , newSingleAssignmentDisposable
+       , BooleanDisposable
        , Disposable
        , SingleAssignmentDisposable
-       , CompositeDisposable
-       , BooleanDisposable
-       , append
-       , createDisposable
-       , emptyDisposable
-       , get
-       , newSingleAssignmentDisposable
-       , newCompositeDisposable
-       , newBooleanDisposable
-       , set
-       , toDisposable
+       , SetDisposable(..)
+       , ToDisposable(..)
+       , IDisposable(..)
+       , DisposeResult
        ) where
 
-import qualified Rx.Disposable.BooleanDisposable          as BD
-import qualified Rx.Disposable.CompositeDisposable        as CD
-import qualified Rx.Disposable.Internal                   as D
-import qualified Rx.Disposable.SingleAssignmentDisposable as SAD
+import Control.Exception (SomeException, try)
+import Control.Monad (sequence, unless, void)
+import Data.Monoid (Monoid (..))
+import Data.Typeable (Typeable)
 
-import Rx.Disposable.Types
-
---------------------------------------------------------------------------------
-
-class IDisposableWrapper d where
-  -- | Sets inner @Disposable@ on the type implemeting @IDisposableWrapper@
-  set :: ToDisposable d0 => d0 -> d -> IO ()
-  -- | Gets inner @Disposable@ on the type implemeting @IDisposableWrapper@
-  get :: d -> IO (Maybe Disposable)
-
-class IDisposableContainer d where
-  -- | Append a @Disposable@ to the @Disposable@ children list
-  append :: ToDisposable d0 => d0 -> d -> IO ()
+import Control.Concurrent.MVar (MVar, modifyMVar, newMVar, putMVar, readMVar,
+                                swapMVar, takeMVar)
 
 --------------------------------------------------------------------------------
 
--- | Creates a disposable that doesn't have any side effect whatsoever
--- when disposed.
+type DisposableDescription = String
+
+newtype DisposeResult
+  = DisposeResult { fromDisposeResult :: [(DisposableDescription, Maybe SomeException)] }
+  deriving (Show, Typeable)
+
+newtype Disposable
+  = Disposable [IO DisposeResult]
+  deriving (Typeable)
+
+newtype BooleanDisposable
+  = BooleanDisposable (MVar Disposable)
+  deriving (Typeable)
+
+newtype SingleAssignmentDisposable
+  = SingleAssignmentDisposable (MVar (Maybe Disposable))
+  deriving (Typeable)
+
+--------------------------------------------------------------------------------
+
+class IDisposable d where
+  dispose :: d -> IO DisposeResult
+
+class ToDisposable d where
+  toDisposable :: d -> Disposable
+
+class SetDisposable d where
+  setDisposable ::  d -> Disposable -> IO ()
+
+--------------------------------------------------------------------------------
+
+instance Monoid DisposeResult where
+  mempty = DisposeResult []
+  (DisposeResult as) `mappend` (DisposeResult bs) =
+    DisposeResult $ as ++ bs
+
+--------------------
+
+instance Monoid Disposable where
+  mempty  = Disposable []
+  (Disposable as) `mappend` (Disposable bs) =
+    Disposable (as ++ bs)
+
+instance IDisposable Disposable where
+  dispose (Disposable actions) =
+    mconcat `fmap` sequence actions
+
+instance ToDisposable Disposable where
+  toDisposable = id
+
+--------------------
+
+instance IDisposable BooleanDisposable where
+  dispose (BooleanDisposable disposableVar) = do
+    disposable <- readMVar disposableVar
+    dispose disposable
+
+instance ToDisposable BooleanDisposable where
+  toDisposable booleanDisposable  =
+    Disposable [dispose booleanDisposable]
+
+instance SetDisposable BooleanDisposable where
+  setDisposable (BooleanDisposable currentVar) disposable = do
+    oldDisposable <- swapMVar currentVar disposable
+    void $ dispose oldDisposable
+
+-- --------------------
+
+instance IDisposable SingleAssignmentDisposable where
+  dispose (SingleAssignmentDisposable disposableVar) = do
+    mdisposable <- readMVar disposableVar
+    maybe (return mempty) dispose mdisposable
+
+instance ToDisposable SingleAssignmentDisposable where
+  toDisposable singleAssignmentDisposable =
+    Disposable [dispose singleAssignmentDisposable]
+
+instance SetDisposable SingleAssignmentDisposable where
+  setDisposable (SingleAssignmentDisposable disposableVar) disposable = do
+    mdisposable <- takeMVar disposableVar
+    case mdisposable of
+      Nothing -> putMVar disposableVar $ Just disposable
+      Just _  -> error $ "ERROR: called 'setDisposable' more " ++
+                         "than once on SingleAssignmentDisposable"
+
+--------------------------------------------------------------------------------
+
+disposeErrorList :: DisposeResult -> [(DisposableDescription, SomeException)]
+disposeErrorList = foldr accJust [] . fromDisposeResult
+  where
+    accJust (desc, Nothing) acc = acc
+    accJust (desc, Just err) acc = (desc, err) : acc
+
+disposeActionList :: DisposeResult -> [(DisposableDescription, Maybe SomeException)]    
+disposeActionList = fromDisposeResult
+
+disposeCount :: DisposeResult -> Int
+disposeCount = length . fromDisposeResult
+
+disposeErrorCount :: DisposeResult -> Int
+disposeErrorCount = length . disposeErrorList
+
+--------------------
+  
 emptyDisposable :: IO Disposable
-emptyDisposable = D.empty
+emptyDisposable = return mempty
 
--- | Creates a @Disposable@ from an @IO@ action, this @IO@ action will
--- be called when @dispose@ is called.
-createDisposable :: IO () -> IO Disposable
-createDisposable = D.create
+newDisposable :: DisposableDescription -> IO () -> IO Disposable
+newDisposable desc disposingAction = do
+  disposeResultVar <- newMVar Nothing
+  return $ Disposable $
+    [modifyMVar disposeResultVar $ \disposeResult ->
+      case disposeResult of
+        Just disposeResult -> return (Just disposeResult, disposeResult)
+        Nothing ->  do
+          disposingResult <- try disposingAction
+          let result = DisposeResult [(desc, either Just (const Nothing) disposingResult)]
+          return (Just result, result)]
 
--- | Creates an empty @BooleanDisposable@.
---
 newBooleanDisposable :: IO BooleanDisposable
-newBooleanDisposable = BD.empty
+newBooleanDisposable = do
+  newMVar mempty >>= return . BooleanDisposable
 
--- | Creates an empty @SingleAssignmentDisposable@.
---
 newSingleAssignmentDisposable :: IO SingleAssignmentDisposable
-newSingleAssignmentDisposable = SAD.empty
-
--- | Creates an empty @CompositeDisposable@.
---
-newCompositeDisposable :: IO CompositeDisposable
-newCompositeDisposable = CD.create
-
---------------------------------------------------------------------------------
-
-instance IDisposableWrapper BooleanDisposable where
-  set d0 = BD.set (toDisposable d0)
-  get = BD.get
-
-instance IDisposableWrapper SingleAssignmentDisposable where
-  set d0 = SAD.set (toDisposable d0)
-  get = SAD.get
-
-instance IDisposableContainer CompositeDisposable where
-  append d0 = CD.append (toDisposable d0)
+newSingleAssignmentDisposable = do
+  newMVar Nothing >>= return . SingleAssignmentDisposable

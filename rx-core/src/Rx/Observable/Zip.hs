@@ -1,17 +1,18 @@
 {-# LANGUAGE RankNTypes #-}
 module Rx.Observable.Zip where
 
-import Control.Concurrent (yield)
 import Prelude hiding (zip, zipWith)
 
+import Data.Monoid (mappend)
+
+import Control.Concurrent (yield)
 import Control.Concurrent.STM (TQueue, atomically, isEmptyTQueue, modifyTVar,
                                newTQueueIO, newTVarIO, readTQueue, readTVar,
                                writeTQueue, writeTVar)
 import Control.Monad (unless, when)
 
-import Rx.Disposable (newCompositeDisposable, toDisposable)
+import Rx.Disposable (setDisposable, toDisposable)
 import Rx.Scheduler (Async)
-import qualified Rx.Disposable as Disposable
 
 import Rx.Observable.Types
 
@@ -28,8 +29,7 @@ zipWith zipFn source1 source2 = Observable $ \observer -> do
     isCompletedVar <- newTVarIO False
     completedCountVar <- newTVarIO (0 :: Int)
 
-    mainDisposable <- newCompositeDisposable
-    main mainDisposable observer
+    main observer
          queue1 queue2
          isCompletedVar completedCountVar
   where
@@ -40,7 +40,7 @@ zipWith zipFn source1 source2 = Observable $ \observer -> do
     conj queue a = atomically $ writeTQueue queue a
     isEmpty = isEmptyTQueue
 
-    main mainDisposable observer
+    main observer
          queue1 queue2
          isCompletedVar completedCountVar = do
 
@@ -54,10 +54,7 @@ zipWith zipFn source1 source2 = Observable $ \observer -> do
                             onError_
                             onCompleted_
 
-        Disposable.append disposableB mainDisposable
-        Disposable.append disposableA mainDisposable
-
-        return $ toDisposable mainDisposable
+        return $ disposableB `mappend` disposableA
       where
         whileNotCompleted action = do
           wasCompleted <- atomically $ readTVar isCompletedVar

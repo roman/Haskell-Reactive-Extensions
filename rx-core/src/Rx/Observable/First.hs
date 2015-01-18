@@ -6,8 +6,8 @@ import Control.Concurrent.MVar (newMVar, readMVar, swapMVar)
 import Control.Exception (ErrorCall (..), toException)
 import Control.Monad (void)
 
-import Rx.Disposable (dispose, newSingleAssignmentDisposable, toDisposable)
-import qualified Rx.Disposable as Disposable
+import Rx.Disposable (dispose, newSingleAssignmentDisposable, setDisposable,
+                      toDisposable)
 
 import Rx.Scheduler (Async)
 
@@ -35,11 +35,11 @@ once source =
                 let err = toException
                              $ ErrorCall "once: expected to receive one element"
                 onError observer err
-                dispose sourceDisposable)
+                void $ dispose sourceDisposable)
           (\err -> do
             onError observer err
-            dispose sourceDisposable)
+            void $ dispose sourceDisposable)
           (onCompleted observer)
 
-    Disposable.set innerDisposable sourceDisposable
+    setDisposable sourceDisposable innerDisposable
     return $ toDisposable sourceDisposable

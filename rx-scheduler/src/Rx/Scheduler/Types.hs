@@ -13,7 +13,6 @@ data Scheduler s
   , _timedSchedule     :: TimeInterval -> IO () -> IO Disposable
   }
 
-
 class IScheduler scheduler where
   immediateSchedule :: scheduler s -> IO () -> IO Disposable
   timedSchedule     :: scheduler s -> TimeInterval -> IO () -> IO Disposable

@@ -31,9 +31,8 @@ import qualified Data.Streaming.FileRead as FR
 
 import qualified System.IO as IO
 
-import Rx.Disposable (createDisposable, newCompositeDisposable, toDisposable)
+import Rx.Disposable (newDisposable, toDisposable)
 import Rx.Observable (Observable (..), onCompleted, onError, onNext)
-import qualified Rx.Disposable as Disposable
 import qualified Rx.Observable as Rx
 import qualified Rx.Scheduler  as Rx (IScheduler, schedule)
 
@@ -109,7 +108,6 @@ toHandle !h !source = Observable $ \observer ->
 toFile :: Rx.IObservable source => FilePath -> source s BS.ByteString -> Observable s ()
 toFile !filepath !source = Observable $ \observer -> do
   h <- IO.openFile filepath IO.WriteMode
-  rootDisposable <- newCompositeDisposable
   sourceDisposable <-
     Rx.subscribe source (BS.hPutStr h)
                         (\err -> do
@@ -118,10 +116,8 @@ toFile !filepath !source = Observable $ \observer -> do
                         (do IO.hClose h
                             onNext observer ()
                             onCompleted observer)
-  fileDisposable <- createDisposable $ IO.hClose h
-  Disposable.append sourceDisposable rootDisposable
-  Disposable.append fileDisposable rootDisposable
-  return $ toDisposable rootDisposable
+  fileDisposable <- newDisposable "Observable.toFile" $ IO.hClose h
+  return $ sourceDisposable <> fileDisposable
 {-# INLINE toFile #-}
 
 

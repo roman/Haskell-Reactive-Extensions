@@ -4,10 +4,10 @@ import Prelude hiding (take, takeWhile)
 
 import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TVar (modifyTVar, newTVarIO, readTVar)
-import Control.Monad (when)
+import Control.Monad (void, when)
 
-import Rx.Disposable (dispose, newSingleAssignmentDisposable)
-import qualified Rx.Disposable as Disposable
+import Rx.Disposable (dispose, newSingleAssignmentDisposable, setDisposable,
+                      toDisposable)
 
 import Rx.Scheduler (Async)
 
@@ -22,8 +22,8 @@ take n source = Observable $ \observer -> do
     countdownVar <- newTVarIO n
     subscription <- main sourceDisposable observer countdownVar
 
-    Disposable.set subscription sourceDisposable
-    return $ Disposable.toDisposable sourceDisposable
+    setDisposable sourceDisposable subscription
+    return $ toDisposable sourceDisposable
   where
     main sourceDisposable observer countdownVar =
         subscribe source onNext_ onError_ onCompleted_
@@ -37,7 +37,7 @@ take n source = Observable $ \observer -> do
           onNext observer v
           when shouldFinish $ do
             onCompleted observer
-            dispose sourceDisposable
+            void $ dispose sourceDisposable
         onError_ = onError observer
         onCompleted_ = onCompleted observer
 
@@ -49,8 +49,8 @@ takeWhileM predFn source = Observable $ \observer -> do
     sourceDisposable <- newSingleAssignmentDisposable
     subscription     <- main sourceDisposable observer
 
-    Disposable.set subscription sourceDisposable
-    return $ Disposable.toDisposable sourceDisposable
+    setDisposable sourceDisposable subscription
+    return $ toDisposable sourceDisposable
   where
     main sourceDisposable observer =
         subscribe source onNext_ onError_ onCompleted_
@@ -61,7 +61,7 @@ takeWhileM predFn source = Observable $ \observer -> do
              then onNext observer v
              else do
                onCompleted observer
-               dispose sourceDisposable
+               void $ dispose sourceDisposable
         onError_ = onError observer
         onCompleted_ = onCompleted observer
 

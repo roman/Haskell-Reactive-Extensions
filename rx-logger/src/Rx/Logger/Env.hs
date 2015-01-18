@@ -5,25 +5,23 @@ module Rx.Logger.Env
        , setupLogTracerWithPrefix
        ) where
 
-import           Control.Concurrent.STM (TChan, atomically, dupTChan,
-                                         newTChanIO, readTChan, writeTChan)
-import           Control.Monad          (liftM)
-import           Data.Maybe             (fromMaybe)
-import           Data.Monoid            (First (..), mconcat)
-import qualified Data.Text              as Text
-import           System.Environment     (lookupEnv)
-import           System.IO              (stderr, stdout)
+import Control.Concurrent.STM (TChan, atomically, dupTChan, newTChanIO,
+                               readTChan, writeTChan)
+import Control.Monad (liftM)
+import Data.Maybe (fromMaybe)
+import Data.Monoid (First (..), mconcat)
+import System.Environment (lookupEnv)
+import System.IO (stderr, stdout)
+import qualified Data.Text as Text
 
 
-import           Rx.Disposable (Disposable, emptyDisposable,
-                                newCompositeDisposable)
-import qualified Rx.Disposable as Disposable
+import Rx.Disposable (Disposable, emptyDisposable)
 import qualified Rx.Observable as Ob
 
 import Rx.Logger.Core
-import Rx.Logger.Format         (ttccFormat)
+import Rx.Logger.Format (ttccFormat)
 import Rx.Logger.LogLevelParser (parseLogLevel)
-import Rx.Logger.Serializer     (serializeToFile, serializeToHandle)
+import Rx.Logger.Serializer (serializeToFile, serializeToHandle)
 import Rx.Logger.Types
 
 
@@ -73,18 +71,10 @@ setupLogTracer settings logger = do
             parseLogLevel $ Text.pack logLevelStr
       return $ fromMaybe (>= TRACE) result
 
-    main loggerChan chanDisposable = do
-        allSubs <- newCompositeDisposable
-        Disposable.append chanDisposable allSubs
-
-
-        setupHandleTrace loggerChan >>=
-          flip Disposable.append allSubs
-
-        setupFileTrace loggerChan >>=
-          flip Disposable.append allSubs
-
-        return $! Disposable.toDisposable allSubs
+    main loggerChan chanDisp = do
+        handleDisp <- setupHandleTrace loggerChan
+        fileDisp   <- setupFileTrace loggerChan 
+        return $! mconcat [fileDisp, handleDisp, chanDisp]
       where
         setupFileTrace loggerChan0 = do
           loggerChan <- atomically $ dupTChan loggerChan

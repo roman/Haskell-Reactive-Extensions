@@ -8,7 +8,7 @@ import qualified Control.Concurrent.STM.TChan as TChan
 import Tiempo (toMicroSeconds)
 
 import Rx.Disposable ( Disposable, IDisposable(..), ToDisposable(..)
-                     , createDisposable, emptyDisposable)
+                     , newDisposable, emptyDisposable )
 import Rx.Scheduler.Types
 
 --------------------------------------------------------------------------------
@@ -28,7 +28,6 @@ instance IScheduler SingleThreadScheduler where
   timedSchedule = timedSchedule . _scheduler
 
 instance IDisposable (SingleThreadScheduler s) where
-  isDisposed = isDisposed . _disposable
   dispose = dispose . _disposable
 
 instance ToDisposable (SingleThreadScheduler s) where
@@ -42,7 +41,7 @@ _singleThread fork = do
   tid <- fork $ forever $ do
     join $ atomically $ TChan.readTChan reqChan
     yield
-  disposable <- createDisposable $ killThread tid
+  disposable <- newDisposable "Scheduler.singleThread" $ killThread tid
 
   let scheduler =
         Scheduler {
@@ -57,8 +56,6 @@ _singleThread fork = do
         }
 
   return $ SingleThreadScheduler scheduler disposable
-
-
 
 --------------------------------------------------------------------------------
 

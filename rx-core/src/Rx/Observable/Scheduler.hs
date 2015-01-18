@@ -1,24 +1,25 @@
 module Rx.Observable.Scheduler where
 
-import Rx.Scheduler (IScheduler, schedule)
+import Data.Monoid (mappend)
 
-import Rx.Disposable (newBooleanDisposable, newCompositeDisposable, toDisposable)
-import qualified Rx.Disposable as Disposable
+import Rx.Disposable (newBooleanDisposable, setDisposable, toDisposable)
+import Rx.Scheduler (IScheduler, schedule)
 import Rx.Observable.Types
+
+import qualified Rx.Disposable as Disposable
 
 scheduleOn :: (IScheduler scheduler, IObservable observable)
            => scheduler s
            -> observable s0 a
            -> Observable s a
 scheduleOn scheduler source = Observable $ \observer -> do
-  allDisp <- newCompositeDisposable
   currentDisp <- newBooleanDisposable
   subDisp <- subscribe source
                (\v -> do
                  disp <- schedule scheduler (onNext observer v)
-                 Disposable.set disp currentDisp)
+                 setDisposable currentDisp disp)
                (onError observer)
                (onCompleted observer)
-  Disposable.append subDisp allDisp
-  Disposable.append currentDisp allDisp
-  return $ toDisposable allDisp
+
+  return $ toDisposable currentDisp `mappend`
+           subDisp

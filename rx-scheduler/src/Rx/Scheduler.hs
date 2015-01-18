@@ -25,10 +25,8 @@ module Rx.Scheduler
 import Control.Monad (when)
 import Tiempo (TimeInterval, seconds)
 
-import Rx.Disposable ( Disposable
-                     , newBooleanDisposable
-                     , toDisposable, emptyDisposable, createDisposable)
-import qualified Rx.Disposable as Disposable
+import Rx.Disposable (Disposable, emptyDisposable, newBooleanDisposable,
+                      newDisposable, setDisposable, toDisposable)
 
 import Rx.Scheduler.CurrentThread
 import Rx.Scheduler.NewThread
@@ -46,7 +44,9 @@ scheduleTimed ::
   -> IO Disposable
 scheduleTimed = timedSchedule
 
-scheduleRecursive :: (IScheduler scheduler) => scheduler s -> IO Bool -> IO Disposable
+scheduleRecursive ::
+  (IScheduler scheduler)
+  => scheduler s -> IO Bool -> IO Disposable
 scheduleRecursive scheduler action = do
     outerDisp <- newBooleanDisposable
     main outerDisp
@@ -56,7 +56,7 @@ scheduleRecursive scheduler action = do
       innerDisp <- immediateSchedule scheduler $ do
           result <- action
           when result $ main outerDisp
-      Disposable.set innerDisp outerDisp
+      setDisposable outerDisp innerDisp
 
 scheduleRecursiveState ::
   (IScheduler scheduler)
@@ -75,7 +75,7 @@ scheduleRecursiveState scheduler !st action = do
           case result of
             Nothing -> return ()
             Just newSt -> main outerDisp newSt
-      Disposable.set innerDisp outerDisp
+      setDisposable outerDisp innerDisp
 
 scheduleTimedRecursive ::
   (IScheduler scheduler)
@@ -94,7 +94,7 @@ scheduleTimedRecursive scheduler !interval action = do
           case result of
             Nothing -> return ()
             Just newInterval -> main outerDisp newInterval
-      Disposable.set innerDisp outerDisp
+      setDisposable outerDisp innerDisp
 
 scheduleTimedRecursiveState ::
   (IScheduler scheduler)
@@ -114,4 +114,4 @@ scheduleTimedRecursiveState scheduler interval st action = do
           case result of
             Nothing -> return ()
             Just (newSt, newInterval) -> main outerDisp newInterval newSt
-      Disposable.set innerDisp outerDisp
+      setDisposable outerDisp innerDisp
