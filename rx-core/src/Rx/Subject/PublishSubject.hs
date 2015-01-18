@@ -18,7 +18,7 @@ import Control.Concurrent (yield)
 import Control.Concurrent.Async (async, cancelWith)
 import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TChan (newTChanIO, readTChan, writeTChan)
-import Control.Concurrent.STM.TVar (newTVarIO, readTVar)
+import Control.Concurrent.STM.TVar (newTVarIO, readTVar, writeTVar)
 
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Unique         as Unique
@@ -45,7 +45,7 @@ instance Exception SubjectSubscriptionDisposed
 create :: IO (Subject v)
 create = do
     subjChan <- newTChanIO
-    completedVar <- newTVarIO False
+    completedVar <- newTVarIO Nothing
     main completedVar subjChan
   where
     main completedVar subjChan = do
@@ -55,54 +55,58 @@ create = do
         --
         -- QUESTION: Is this truly going to stop of threads being
         -- leaked into memory?
-        stateMachineAsync <- async $ stateMachine False HashMap.empty
+        stateMachineAsync <- async $ stateMachine HashMap.empty
         return $ Subject psSubscribeObserver psEmitNotification stateMachineAsync
       where
-        stateMachine wasCompleted subMap = do
+        stateMachine subMap = do
           ev <- atomically $ readTChan subjChan
           case ev of
-            OnEmit notification@OnCompleted -> unless wasCompleted $ do
+            OnEmit notification@OnCompleted -> do
               forM_ (HashMap.elems subMap) $ \(subChan, _) ->
                 atomically $ writeTChan subChan notification
-              stateMachine True subMap
+              atomically $ writeTVar completedVar (Just (Right ()))
 
-            OnEmit notification -> unless wasCompleted $ do
+            OnEmit notification@(OnError err) -> do
               forM_ (HashMap.elems subMap) $ \(subChan, _) ->
                 atomically $ writeTChan subChan notification
-              stateMachine wasCompleted subMap
+              atomically $ writeTVar completedVar (Just (Left err))
+
+            OnEmit notification -> do
+              forM_ (HashMap.elems subMap) $ \(subChan, _) ->
+                atomically $ writeTChan subChan notification
+              stateMachine subMap
 
             OnSubscribe subId observer -> do
-              if wasCompleted
-                then void
-                     $ async
-                     $ observerSubscriptionAccept observer OnCompleted (return ())
-                else do
-                  subChan  <- newTChanIO
-                  subAsync <- async $ observerSubscriptionLoop subChan observer
-                  let subMap' =
-                        HashMap.insert subId (subChan, subAsync) subMap
-                  stateMachine wasCompleted subMap'
+              subChan  <- newTChanIO
+              subAsync <- async $ observerSubscriptionLoop subChan observer
+              let subMap' = HashMap.insert subId (subChan, subAsync) subMap
+              stateMachine subMap'
 
             OnDispose subId ->
               case HashMap.lookup subId subMap of
-                Nothing -> stateMachine wasCompleted subMap
+                Nothing -> stateMachine subMap
                 Just (_, subAsync) -> do
                   cancelWith subAsync SubjectSubscriptionDisposed
                   let subMap' = HashMap.delete subId subMap
-                  stateMachine wasCompleted subMap'
+                  stateMachine subMap'
 
         psSubscribeObserver observer = do
           wasCompleted <- atomically $ readTVar completedVar
-          if wasCompleted
-            then do
-              onCompleted observer
-              emptyDisposable
-            else do
+          case wasCompleted of
+            Nothing -> do
               subId <- Unique.hashUnique <$> Unique.newUnique
               atomically $ writeTChan subjChan (OnSubscribe subId observer)
               newDisposable "PublishSubject.subscribe"
                 $ atomically
                 $ writeTChan subjChan (OnDispose subId)
+
+            Just (Left err) -> do
+              onError observer err
+              emptyDisposable
+
+            Just (Right _) -> do
+              onCompleted observer
+              emptyDisposable
 
         observerSubscriptionLoop subChan observer = do
           notification <- atomically $ readTChan subChan
@@ -125,6 +129,6 @@ create = do
           -- when using a Subject of subjects
           replicateM_ 2 yield
           wasCompleted <- atomically $ readTVar completedVar
-          unless wasCompleted
-            $ atomically
-            $ writeTChan subjChan (OnEmit notification)
+          case wasCompleted of
+            Nothing ->  atomically $ writeTChan subjChan (OnEmit notification)
+            _ -> return ()

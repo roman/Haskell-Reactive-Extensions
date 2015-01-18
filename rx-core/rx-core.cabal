@@ -33,6 +33,7 @@ test-suite rx-core-testsuite
     hspec,
     HUnit,
     QuickCheck,
+    stm,
     tiempo,
     rx-core,
     rx-scheduler,
@@ -70,7 +71,8 @@ library
     Rx.Observable.Timeout,
     Rx.Observable.Zip,
     Rx.Subject.SingleSubject,
-    Rx.Subject.PublishSubject
+    Rx.Subject.PublishSubject,
+    Rx.Subject.SyncPublishSubject
 
   build-depends:
     base >=4.7 && <4.8,
