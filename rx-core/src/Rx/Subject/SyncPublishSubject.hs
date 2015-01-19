@@ -45,19 +45,16 @@ create = do
           ev <- atomically $ readTChan subChan
           case ev of
             OnEmit OnCompleted -> do
-              putStrLn "COMPLETED"
               atomically $ writeTVar completedVar (Just $ Right ())
               mapM_ (Notification.accept OnCompleted)
                     (HashMap.elems subMap)
 
             OnEmit notification@(OnError err) -> do
-              putStrLn "RECEIVED ERROR"
               atomically $ writeTVar completedVar (Just $ Left err)
               mapM_ (Notification.accept notification)
                     (HashMap.elems subMap) 
 
             OnEmit notification -> do
-              putStrLn "RECEIVED NOTIFICATION"
               wasCompleted <- atomically $ readTVar completedVar
               case wasCompleted of
                 Nothing -> do
