@@ -2,7 +2,7 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 module Rx.Observable.Types where
 
-import Data.Monoid (mappend)
+import Data.Monoid (mappend, mempty)
 import Data.Typeable (Typeable)
 
 import Control.Exception (AsyncException (ThreadKilled), Exception (..),
@@ -93,22 +93,18 @@ instance ToAsyncObservable Subject where
 instance ToSyncObservable Subject where
   toSyncObservable subject = Observable $ \observer -> do
       chan <- newTChanIO
-      disposable <- newSingleAssignmentDisposable
-      innerDisposable <-
+      _disposable <-
         subscribeObserver
                   (toAsyncObservable subject)
                   (Observer $ atomically . writeTChan chan)
-      setDisposable disposable innerDisposable 
       syncLoop observer chan
         `catch` onError observer
-      return $ toDisposable disposable
+      return mempty
     where
       syncLoop observer chan =
         forever $ do
           notification <- atomically $ readTChan chan
           emitNotification observer notification
-
-
 
 instance IObserver Subject where
   emitNotification = _subjectOnEmitNotification
@@ -167,10 +163,13 @@ subscribe :: (IObservable observable)
 subscribe !source !nextHandler0 !errHandler0 !complHandler0 =
     unsafeSubscribe source nextHandler errHandler0 complHandler0
   where
+    errHandler err = do
+      print err
+      errHandler0 err
     nextHandler v =
       (v `seq` nextHandler0 v)
         `catches` [ Handler (\err@ThreadKilled -> throw err)
-                  , Handler errHandler0]
+                  , Handler errHandler ]
 {-# INLINE subscribe #-}
 
 

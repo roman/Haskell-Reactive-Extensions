@@ -45,19 +45,26 @@ create = do
           ev <- atomically $ readTChan subChan
           case ev of
             OnEmit OnCompleted -> do
+              putStrLn "COMPLETED"
+              atomically $ writeTVar completedVar (Just $ Right ())
               mapM_ (Notification.accept OnCompleted)
                     (HashMap.elems subMap)
-              atomically $ writeTVar completedVar (Just $ Right ())
 
             OnEmit notification@(OnError err) -> do
-              mapM (Notification.accept notification)
-                   (HashMap.elems subMap) 
+              putStrLn "RECEIVED ERROR"
               atomically $ writeTVar completedVar (Just $ Left err)
+              mapM_ (Notification.accept notification)
+                    (HashMap.elems subMap) 
 
             OnEmit notification -> do
-              mapM_ (Notification.accept notification)
-                    (HashMap.elems subMap)
-              stateMachine subMap
+              putStrLn "RECEIVED NOTIFICATION"
+              wasCompleted <- atomically $ readTVar completedVar
+              case wasCompleted of
+                Nothing -> do
+                  mapM_ (Notification.accept notification)
+                        (HashMap.elems subMap)
+                  stateMachine subMap
+                _ -> return ()
 
             OnSubscribe subId observer -> do
               let subMap' = HashMap.insert subId observer subMap
@@ -86,9 +93,9 @@ create = do
                emptyDisposable
 
         psEmitNotification notification = do
-          yield
           wasCompleted <- atomically $ readTVar completedVar
           case wasCompleted of
-            Nothing -> atomically $ writeTChan subChan (OnEmit notification)
+            Nothing -> 
+              atomically $ writeTChan subChan (OnEmit notification)
             _ -> return ()
             
