@@ -8,7 +8,7 @@ import qualified Control.Concurrent.STM.TChan as TChan
 import Tiempo (toMicroSeconds)
 
 import Rx.Disposable ( Disposable, IDisposable(..), ToDisposable(..)
-                     , newDisposable, emptyDisposable )
+                     , newDisposable, emptyDisposable)
 import Rx.Scheduler.Types
 
 --------------------------------------------------------------------------------
@@ -28,7 +28,7 @@ instance IScheduler SingleThreadScheduler where
   timedSchedule = timedSchedule . _scheduler
 
 instance IDisposable (SingleThreadScheduler s) where
-  dispose = dispose . _disposable
+  disposeWithResult = disposeWithResult . _disposable
 
 instance ToDisposable (SingleThreadScheduler s) where
   toDisposable = _disposable

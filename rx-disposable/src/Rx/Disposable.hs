@@ -2,6 +2,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Rx.Disposable
        ( emptyDisposable
+       , dispose
        , disposeCount
        , disposeErrorCount
        , disposeErrorList
@@ -49,7 +50,7 @@ newtype SingleAssignmentDisposable
 --------------------------------------------------------------------------------
 
 class IDisposable d where
-  dispose :: d -> IO DisposeResult
+  disposeWithResult :: d -> IO DisposeResult
 
 class ToDisposable d where
   toDisposable :: d -> Disposable
@@ -72,7 +73,7 @@ instance Monoid Disposable where
     Disposable (as ++ bs)
 
 instance IDisposable Disposable where
-  dispose (Disposable actions) =
+  disposeWithResult (Disposable actions) =
     mconcat `fmap` sequence actions
 
 instance ToDisposable Disposable where
@@ -81,29 +82,29 @@ instance ToDisposable Disposable where
 --------------------
 
 instance IDisposable BooleanDisposable where
-  dispose (BooleanDisposable disposableVar) = do
+  disposeWithResult (BooleanDisposable disposableVar) = do
     disposable <- readMVar disposableVar
-    dispose disposable
+    disposeWithResult disposable
 
 instance ToDisposable BooleanDisposable where
   toDisposable booleanDisposable  =
-    Disposable [dispose booleanDisposable]
+    Disposable [disposeWithResult booleanDisposable]
 
 instance SetDisposable BooleanDisposable where
   setDisposable (BooleanDisposable currentVar) disposable = do
     oldDisposable <- swapMVar currentVar disposable
-    void $ dispose oldDisposable
+    void $ disposeWithResult oldDisposable
 
 -- --------------------
 
 instance IDisposable SingleAssignmentDisposable where
-  dispose (SingleAssignmentDisposable disposableVar) = do
+  disposeWithResult (SingleAssignmentDisposable disposableVar) = do
     mdisposable <- readMVar disposableVar
-    maybe (return mempty) dispose mdisposable
+    maybe (return mempty) disposeWithResult mdisposable
 
 instance ToDisposable SingleAssignmentDisposable where
   toDisposable singleAssignmentDisposable =
-    Disposable [dispose singleAssignmentDisposable]
+    Disposable [disposeWithResult singleAssignmentDisposable]
 
 instance SetDisposable SingleAssignmentDisposable where
   setDisposable (SingleAssignmentDisposable disposableVar) disposable = do
@@ -120,20 +121,29 @@ disposeErrorList = foldr accJust [] . fromDisposeResult
   where
     accJust (desc, Nothing) acc = acc
     accJust (desc, Just err) acc = (desc, err) : acc
+{-# INLINE disposeErrorList #-}
 
 disposeActionList :: DisposeResult -> [(DisposableDescription, Maybe SomeException)]    
 disposeActionList = fromDisposeResult
+{-# INLINE disposeActionList #-}
 
 disposeCount :: DisposeResult -> Int
 disposeCount = length . fromDisposeResult
+{-# INLINE disposeCount #-}
 
 disposeErrorCount :: DisposeResult -> Int
 disposeErrorCount = length . disposeErrorList
+{-# INLINE disposeErrorCount #-}
 
 --------------------
   
+dispose :: IDisposable disposable => disposable -> IO ()
+dispose = void . disposeWithResult
+{-# INLINE dispose #-}
+
 emptyDisposable :: IO Disposable
 emptyDisposable = return mempty
+{-# INLINE emptyDisposable #-}
 
 newDisposable :: DisposableDescription -> IO () -> IO Disposable
 newDisposable desc disposingAction = do
@@ -146,11 +156,14 @@ newDisposable desc disposingAction = do
           disposingResult <- try disposingAction
           let result = DisposeResult [(desc, either Just (const Nothing) disposingResult)]
           return (Just result, result)]
+{-# INLINE newDisposable #-}
 
 newBooleanDisposable :: IO BooleanDisposable
 newBooleanDisposable = do
   newMVar mempty >>= return . BooleanDisposable
+{-# INLINE newBooleanDisposable #-}
 
 newSingleAssignmentDisposable :: IO SingleAssignmentDisposable
 newSingleAssignmentDisposable = do
   newMVar Nothing >>= return . SingleAssignmentDisposable
+{-# INLINE newSingleAssignmentDisposable #-}
