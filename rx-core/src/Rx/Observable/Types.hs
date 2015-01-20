@@ -223,6 +223,15 @@ subscribeObserver !source !observer0 =
 
 --------------------------------------------------------------------------------
 
+newObserver :: (v -> IO ()) -> (SomeException -> IO ()) -> IO () -> Observer v
+newObserver onNext_ onError_ onCompleted_ =
+    Observer observerFn
+  where
+    observerFn (OnNext v) = onNext_ v
+    observerFn (OnError err) = onError_ err
+    observerFn OnCompleted = onCompleted_
+{-# INLINE newObserver #-}
+
 newObservable :: (Observer a -> IO Disposable) -> Observable s a
 newObservable = Observable
 {-# INLINE newObservable #-}
