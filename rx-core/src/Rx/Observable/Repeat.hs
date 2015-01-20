@@ -13,7 +13,7 @@ import Rx.Observable.Types
 
 
 repeat' :: IScheduler scheduler => scheduler s -> IO a -> Observable s a
-repeat' scheduler action = createObservable scheduler $ \observer ->
+repeat' scheduler action = newObservableScheduler scheduler $ \observer ->
   forever $ (action >>= onNext observer) >> yield
 
 repeatEvery' :: IScheduler scheduler

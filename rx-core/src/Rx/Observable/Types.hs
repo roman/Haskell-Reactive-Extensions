@@ -7,7 +7,7 @@ import Data.Typeable (Typeable)
 
 import Control.Exception (AsyncException (ThreadKilled), Exception (..),
                           Handler (..), SomeException, catch, catches, throw,
-                          throwIO)
+                          throwIO, try)
 import Control.Monad (forever, void)
 
 
@@ -15,10 +15,11 @@ import Control.Concurrent.Async (Async)
 import Control.Concurrent.STM (TChan, atomically, newTChanIO, readTChan,
                                writeTChan)
 
-import Rx.Disposable (Disposable, emptyDisposable, toDisposable,
-                      newSingleAssignmentDisposable, setDisposable)
+import Rx.Disposable (Disposable, emptyDisposable,
+                      newSingleAssignmentDisposable, setDisposable,
+                      toDisposable)
 
-import Rx.Scheduler (IScheduler, Sync, newThread, schedule)
+import Rx.Scheduler (IScheduler, Sync, currentThread, newThread, schedule)
 import qualified Rx.Scheduler as Rx (Async)
 
 --------------------------------------------------------------------------------
@@ -122,6 +123,8 @@ instance IObservable Observable where
   onSubscribe = _onSubscribe
   {-# INLINE onSubscribe #-}
 
+--------------------
+
 instance ToAsyncObservable TChan where
   toAsyncObservable chan = Observable $ \observer ->
     schedule newThread $ forever $ do
@@ -135,6 +138,32 @@ instance ToSyncObservable TChan where
       $ forever
       $ atomically (readTChan chan) >>= onNext observer
     emptyDisposable
+  {-# INLINE toSyncObservable #-}
+
+--------------------
+
+ioToObservable :: IScheduler scheduler
+               => scheduler s
+               -> IO a
+               -> Observable s a
+ioToObservable scheduler action =
+  newObservableScheduler scheduler $ \observer -> do
+      result <- try action
+      case result of
+        Right v -> do
+          onNext observer v
+          onCompleted observer
+        Left err ->
+          onError observer err
+      emptyDisposable
+{-# INLINE ioToObservable #-}
+
+instance ToAsyncObservable IO where
+  toAsyncObservable = ioToObservable newThread
+  {-# INLINE toAsyncObservable #-}
+
+instance ToSyncObservable IO where
+  toSyncObservable = ioToObservable currentThread
   {-# INLINE toSyncObservable #-}
 
 --------------------------------------------------------------------------------
@@ -194,11 +223,15 @@ subscribeObserver !source !observer0 =
 
 --------------------------------------------------------------------------------
 
-createObservable :: IScheduler scheduler
+newObservable :: (Observer a -> IO Disposable) -> Observable s a
+newObservable = Observable
+{-# INLINE newObservable #-}
+
+newObservableScheduler :: IScheduler scheduler
                  => scheduler s
                  -> (Observer a -> IO Disposable)
                  -> Observable s a
-createObservable !scheduler !action = Observable $ \observer -> do
+newObservableScheduler !scheduler !action = newObservable $ \observer -> do
   actionDisposable <- newSingleAssignmentDisposable
   threadDisposable <-
     schedule scheduler (action observer >>=
@@ -206,4 +239,4 @@ createObservable !scheduler !action = Observable $ \observer -> do
 
   return $ threadDisposable `mappend`
            toDisposable actionDisposable
-{-# INLINE createObservable #-}
+{-# INLINE newObservableScheduler #-}
