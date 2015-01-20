@@ -72,7 +72,9 @@ module Rx.Observable
        , Observable.toEither
        ) where
 
-import Control.Applicative (Applicative (..))
+import Control.Applicative (Alternative (..), Applicative (..))
+import Control.Exception (ErrorCall (..), toException)
+import Control.Monad (MonadPlus(..))
 
 import qualified Rx.Observable.Distinct as Observable
 import qualified Rx.Observable.Do       as Observable
@@ -109,9 +111,24 @@ instance Applicative (Observable Async) where
 
   obF <*> obV = Observable.zipWith ($) obF obV
 
+instance Alternative (Observable Async) where
+  empty = fail "Alternative.empty"
+  sourceA <|> sourceB = Observable.onErrorResumeNext sourceB sourceA
+
+instance MonadPlus (Observable Async) where
+  mzero = empty
+  mplus = (<|>)
+
 instance Monad (Observable Async) where
+  fail msg =
+    Observable $ \observer -> do
+       onError observer
+               (toException $ ErrorCall msg)
+       emptyDisposable
+
   return result =
     Observable $ \observer -> do
       onNext observer result
       emptyDisposable
+
   (>>=)  = Observable.flatMap
