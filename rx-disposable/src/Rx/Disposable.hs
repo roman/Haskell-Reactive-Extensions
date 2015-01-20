@@ -20,7 +20,7 @@ module Rx.Disposable
        ) where
 
 import Control.Exception (SomeException, try)
-import Control.Monad (sequence, unless, void)
+import Control.Monad (void)
 import Data.Monoid (Monoid (..))
 import Data.Typeable (Typeable)
 
@@ -119,7 +119,7 @@ instance SetDisposable SingleAssignmentDisposable where
 disposeErrorList :: DisposeResult -> [(DisposableDescription, SomeException)]
 disposeErrorList = foldr accJust [] . fromDisposeResult
   where
-    accJust (desc, Nothing) acc = acc
+    accJust (_, Nothing) acc = acc
     accJust (desc, Just err) acc = (desc, err) : acc
 {-# INLINE disposeErrorList #-}
 
@@ -151,7 +151,7 @@ newDisposable desc disposingAction = do
   return $ Disposable $
     [modifyMVar disposeResultVar $ \disposeResult ->
       case disposeResult of
-        Just disposeResult -> return (Just disposeResult, disposeResult)
+        Just result -> return (Just result, result)
         Nothing ->  do
           disposingResult <- try disposingAction
           let result = DisposeResult [(desc, either Just (const Nothing) disposingResult)]

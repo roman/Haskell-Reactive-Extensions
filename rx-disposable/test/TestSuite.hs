@@ -24,7 +24,7 @@ main = hspec $ do
             disposable = mconcat disposables
 
         replicateM_ 10 (dispose disposable)
-        result <- dispose disposable
+        result <- disposeWithResult disposable
 
         -- ensure disposables weren't called more than once
         values <- mapM (atomically . readTVar) vars
@@ -33,7 +33,7 @@ main = hspec $ do
         -- ensure there are 10 disposables on the result
         assertEqual "didn't account for all disposables"
                     10
-                    (length $ fromDisposeResult result)
+                    (disposeCount result)
 
     describe "dispose" $
       it "calls action only once" $ do
@@ -97,7 +97,10 @@ main = hspec $ do
                                    , disposable ]
 
       replicateM_ 10 (dispose allDisposables)
-      dispose allDisposables >>= print
+      dispose allDisposables
+
+      result <- disposeWithResult allDisposables
+      assertEqual "disposeWithResult is not idempotent" 3 (disposeCount result) 
 
       result <- fmap sum
                      (mapM (atomically . readTVar)
