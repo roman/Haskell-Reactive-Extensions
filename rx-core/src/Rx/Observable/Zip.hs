@@ -11,18 +11,17 @@ import Control.Concurrent.STM (TQueue, atomically, isEmptyTQueue, modifyTVar,
                                writeTQueue, writeTVar)
 import Control.Monad (unless, when)
 
-import Rx.Disposable (setDisposable, toDisposable)
 import Rx.Scheduler (Async)
 
 import Rx.Observable.Types
 
 
-zipWith :: (IObservable source1, IObservable source2)
+zipWith :: (IObservable sourceA, IObservable sourceB)
         => (a -> b -> c)
-        -> source1 Async a
-        -> source2 Async b
+        -> sourceA Async a
+        -> sourceB Async b
         -> Observable Async c
-zipWith zipFn source1 source2 = Observable $ \observer -> do
+zipWith zipFn sourceA sourceB = Observable $ \observer -> do
     queue1 <- newTQueueIO
     queue2 <- newTQueueIO
 
@@ -45,12 +44,12 @@ zipWith zipFn source1 source2 = Observable $ \observer -> do
          isCompletedVar completedCountVar = do
 
         disposableA <-
-          subscribe source1 onNextA
+          subscribe sourceA onNextA
                             onError_
                             onCompleted_
 
         disposableB <-
-          subscribe source2 onNextB
+          subscribe sourceB onNextB
                             onError_
                             onCompleted_
 
@@ -91,17 +90,22 @@ zipWith zipFn source1 source2 = Observable $ \observer -> do
           onError observer err
 
         onCompleted_ = whileNotCompleted $ do
-          completedCount <- atomically $ do
+          isCompleted <- atomically $ do
             modifyTVar completedCountVar succ
-            readTVar completedCountVar
+            completedCount <- readTVar completedCountVar
+            if (completedCount == 2)
+              then do
+                writeTVar isCompletedVar True
+                return True
+              else
+                return False
 
-          when (completedCount == 2) $ do
-            atomically $ writeTVar isCompletedVar True
+          when isCompleted $ do
             emptyQueues
             onCompleted observer
 
-zip :: (IObservable source1, IObservable source2)
-       => source1 Async a
-       -> source2 Async b
+zip :: (IObservable sourceA, IObservable sourceB)
+       => sourceA Async a
+       -> sourceB Async b
        -> Observable Async (a,b)
 zip = zipWith (\a b -> (a, b))
