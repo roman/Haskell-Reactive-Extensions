@@ -6,8 +6,6 @@ import Rx.Disposable (newBooleanDisposable, setDisposable, toDisposable)
 import Rx.Scheduler (IScheduler, schedule)
 import Rx.Observable.Types
 
-import qualified Rx.Disposable as Disposable
-
 scheduleOn :: (IScheduler scheduler, IObservable observable)
            => scheduler s
            -> observable s0 a

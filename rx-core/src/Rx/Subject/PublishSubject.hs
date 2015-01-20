@@ -11,7 +11,7 @@ module Rx.Subject.PublishSubject (
 
 import Control.Applicative
 import Control.Exception (Exception (..), try)
-import Control.Monad (forM_, replicateM_, unless, void)
+import Control.Monad (forM_, replicateM_)
 import Data.Typeable (Typeable)
 
 import Control.Concurrent (yield)

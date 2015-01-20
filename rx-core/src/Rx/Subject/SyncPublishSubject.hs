@@ -9,9 +9,7 @@ module Rx.Subject.SyncPublishSubject (
   ) where
 
 import Control.Applicative
-import Control.Monad (unless)
 
-import Control.Concurrent (yield)
 import Control.Concurrent.Async (async)
 import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TChan (newTChanIO, readTChan, writeTChan)
