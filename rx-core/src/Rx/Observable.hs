@@ -1,11 +1,13 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 {-# LANGUAGE FlexibleInstances #-}
 module Rx.Observable
-       ( Scheduler
+       ( IScheduler
+       , Scheduler
        , Sync
        , Async
        , currentThread
        , newThread
+       , schedule
 
        , IObservable (..)
        , Observable (..)
@@ -26,6 +28,8 @@ module Rx.Observable
 
        , Disposable
        , dispose
+       , newDisposable
+       , emptyDisposable
 
        , Observable.catch
        , Observable.concatMap
@@ -77,7 +81,7 @@ module Rx.Observable
 
 import Control.Applicative (Alternative (..), Applicative (..))
 import Control.Exception (ErrorCall (..), toException)
-import Control.Monad (MonadPlus(..))
+import Control.Monad (MonadPlus (..))
 
 import qualified Rx.Observable.Distinct as Observable
 import qualified Rx.Observable.Do       as Observable
@@ -98,8 +102,9 @@ import qualified Rx.Observable.Throttle as Observable
 import qualified Rx.Observable.Timeout  as Observable
 import qualified Rx.Observable.Zip      as Observable
 
-import Rx.Disposable (Disposable, dispose, emptyDisposable)
-import Rx.Scheduler (Async, Scheduler, Sync, currentThread, newThread)
+import Rx.Disposable (Disposable, dispose, emptyDisposable, newDisposable)
+import Rx.Scheduler (Async, IScheduler, Scheduler, Sync, currentThread,
+                     newThread, schedule)
 
 import Rx.Observable.Types
 
