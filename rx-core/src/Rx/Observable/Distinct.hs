@@ -1,37 +1,37 @@
 {-# LANGUAGE BangPatterns #-}
 module Rx.Observable.Distinct where
 
-import Control.Concurrent.MVar (modifyMVar_, newMVar)
+import Data.IORef (newIORef, atomicModifyIORef')
+import Control.Monad (when)
 import Rx.Observable.Types
 import qualified Data.Set as Set
 
 
--- | Returns an `Observable` that emits all items emitted by the source
--- `Observable` that are distinct.
---
+-- | Returns an `Observable` that emits all items emitted by the
+-- source `Observable` that are distinct.
 --
 distinct :: (IObservable source, Eq a, Ord a)
          => source s a
          -> Observable s a
 distinct !source =
-  Observable $ \observer -> do
-    cacheVar <- newMVar Set.empty
-    subscribe source
-      (\v ->
-        modifyMVar_ cacheVar $ \cache ->
-          if Set.member v cache
-            then return cache
-            else do
-              onNext observer v
-              return $ Set.insert v cache)
-      (onError observer)
-      (onCompleted observer)
+    Observable $ \observer -> do
+      cacheVar <- newIORef Set.empty
+      subscribe source
+        (onNext_ cacheVar observer)
+        (onError observer)
+        (onCompleted observer)
+  where
+    onNext_ cacheVar observer val = do
+      shouldEmit <- atomicModifyIORef' cacheVar $ \cache ->
+        if Set.member val cache
+          then (cache, False)
+          else (Set.insert val cache, True)
+      when shouldEmit $ onNext observer val
 {-# INLINE distinct #-}
 
--- | Returns an `Observable` that emits all items emitted by the source
--- `Observable` that are distinct from their immediate predecessors,
--- according to a key selector function.
---
+-- | Returns an `Observable` that emits all items emitted by the
+-- source `Observable` that are distinct from their immediate
+-- predecessors, according to a key selector function.
 --
 distinctUntilChangedWith :: (IObservable source, Eq b)
                          => (a -> b)
@@ -39,27 +39,25 @@ distinctUntilChangedWith :: (IObservable source, Eq b)
                          -> Observable s a
 distinctUntilChangedWith !mapFn !source =
     Observable $ \observer -> do
-      priorValVar <- newMVar Nothing
+      priorValVar <- newIORef Nothing
       subscribe source
-                   (\val -> do
-                     modifyMVar_ priorValVar $ \mpriorVal -> do
-                       case mpriorVal of
-                         Nothing -> do
-                           onNext observer val
-                           return $! Just val
-                         Just priorVal
-                           | mapFn priorVal == mapFn val ->
-                             return $! Just priorVal
-                           | otherwise -> do
-                             onNext observer val
-                             return $! Just val)
+                   (onNext_ priorValVar observer)
                    (onError observer)
                    (onCompleted observer)
+  where
+    onNext_ priorValVar observer val = do
+      mPriorVal <-
+        atomicModifyIORef' priorValVar $ \mPriorVal ->
+          case mPriorVal of
+            Nothing -> (Just val, Just val)
+            Just priorVal
+              | mapFn priorVal == mapFn val -> (Just val, Nothing)
+              | otherwise -> (mPriorVal, Just val)
+      maybe (return ()) (onNext observer) mPriorVal
 {-# INLINE distinctUntilChangedWith #-}
 
 -- | Returns an `Observable` that emits all items emitted by the source
 -- `Observable` that are distinct from their immediate predecessors.
---
 --
 distinctUntilChanged :: (IObservable source, Eq a)
                      => source s a -> Observable s a
