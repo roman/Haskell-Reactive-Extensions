@@ -13,6 +13,7 @@ import qualified Rx.Subject.PublishSubjectTest
 main :: IO ()
 main = hspec $ do
   Rx.Observable.DistinctTest.tests
+  Rx.Observable.DoTest.tests
   Rx.Observable.FoldTest.tests
   Rx.Observable.MergeTest.tests
   Rx.Observable.TimeoutTest.tests
