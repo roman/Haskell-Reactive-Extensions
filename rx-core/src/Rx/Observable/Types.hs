@@ -2,20 +2,21 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 module Rx.Observable.Types where
 
+import Data.IORef (atomicModifyIORef', newIORef, readIORef)
 import Data.Monoid (mappend, mempty)
 import Data.Typeable (Typeable)
 
 import Control.Exception (AsyncException (ThreadKilled), Exception (..),
                           Handler (..), SomeException, catch, catches, throw,
                           throwIO, try)
-import Control.Monad (forever, void)
+import Control.Monad (forever, void, when)
 
 
 import Control.Concurrent.Async (Async)
 import Control.Concurrent.STM (TChan, atomically, newTChanIO, readTChan,
                                writeTChan)
 
-import Rx.Disposable (Disposable, emptyDisposable,
+import Rx.Disposable (Disposable, dispose, emptyDisposable,
                       newSingleAssignmentDisposable, setDisposable,
                       toDisposable)
 
@@ -189,16 +190,42 @@ subscribe :: (IObservable observable)
           -> (SomeException -> IO ())
           -> IO ()
           -> IO Disposable
-subscribe !source !nextHandler0 !errHandler0 !complHandler0 =
-    unsafeSubscribe source nextHandler errHandler0 complHandler0
+subscribe !source !nextHandler0 !errHandler0 !complHandler0 = do
+    completedVar <- newIORef False
+    disposable   <- newSingleAssignmentDisposable
+    main completedVar disposable
+    return $ toDisposable disposable
   where
-    errHandler err = do
-      print err
-      errHandler0 err
-    nextHandler v =
-      (v `seq` nextHandler0 v)
-        `catches` [ Handler (\err@ThreadKilled -> throw err)
-                  , Handler errHandler ]
+    main completedVar disposable = do
+      disposable_ <- unsafeSubscribe source nextHandler errHandler complHandler
+      setDisposable disposable disposable_
+
+      where
+        checkCompletion = atomicModifyIORef' completedVar $ \wasCompleted ->
+          if wasCompleted
+            then (wasCompleted, False)
+            else (True, True)
+
+        nextHandler v = do
+          wasCompleted <- readIORef completedVar
+          if wasCompleted
+            then return ()
+            else
+              (v `seq` nextHandler0 v)
+                 `catches` [ Handler (\err@ThreadKilled -> throw err)
+                           , Handler errHandler ]
+        errHandler err = do
+          shouldComplete <- checkCompletion
+          when shouldComplete $ do
+            dispose disposable
+            errHandler0 err
+
+        complHandler = do
+          shouldComplete <- checkCompletion
+          when shouldComplete $ do
+            dispose disposable
+            complHandler0
+
 {-# INLINE subscribe #-}
 
 
