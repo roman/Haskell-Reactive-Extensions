@@ -16,23 +16,28 @@ main :: IO ()
 main = do
   let source = Rx.fromList Rx.currentThread [1..10]
   result <- Rx.subscribe print print (putStrLn "Stream Done")
+
 ```
 
 Using an async scheduler (can only compose monadically through async):
 
 ```haskell
 
-import Control.Applicative
-import Control.Lens
+module Main where
 
-import Data.Text
+import Control.Applicative ((<$>), (<*>))
+import Control.Lens ((&), (.~), (^?))
+
 import Data.Monoid ((<>))
+import Data.Text (Text)
 
-import Data.Aeson.Lens
-import Network.Wreq
+import Data.Aeson.Lens (key, nth, _String)
+import Network.Wreq (defaults, getWith, param, params, responseBody)
 
 import qualified Rx.Observable as Rx
 
+-- Perform an HTTP Request synchronously to get weather of a city
+--
 getWeather :: Text -> IO (Maybe Text)
 getWeather cityLocation = do
   let opts = defaults & param "q" .~ [cityLocation]
@@ -45,6 +50,9 @@ getWeather cityLocation = do
         return (temp <> " in " <> city)
   return result
 
+-- Perform asynchronously two HTTP Request by transforming them into
+-- Observables and then compose them
+--
 cityMatch :: Rx.Observable Rx.Async (Maybe Text, Maybe Text)
 cityMatch =
   (,) <$> Rx.toAsyncObservable (getWeather "Vancouver, BC")
@@ -52,6 +60,8 @@ cityMatch =
 
 main :: IO ()
 main = do
+  -- Get Async result into an Either value (uses Rx.subscribe + MVar)
+  -- internally
   result <- Rx.toEither cityMatch
   print result
 
