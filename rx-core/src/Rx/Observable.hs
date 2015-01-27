@@ -53,6 +53,8 @@ module Rx.Observable
        , Observable.merge
        , Observable.mergeList
        , Observable.once
+       , Observable.onErrorReturn
+       , Observable.onErrorResumeNext
        , Observable.repeat
        , Observable.repeat'
        , Observable.repeatEvery

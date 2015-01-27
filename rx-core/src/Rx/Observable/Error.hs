@@ -10,7 +10,7 @@ import Rx.Observable.Types
 catch :: (IObservable source, Exception e)
          => (e -> IO ()) -> source s a -> Observable s a
 catch !errHandler !source =
-    Observable $ \observer -> do
+    newObservable $ \observer -> do
       subscribe source
                     (onNext observer)
                     (onError_ observer)
@@ -30,7 +30,7 @@ handle = flip catch
 onErrorReturn :: (IObservable source)
               => a -> source s a -> Observable s a
 onErrorReturn !val !source =
-  Observable $ \observer -> do
+  newObservable $ \observer -> do
     subscribe source
       (onNext observer)
       (\_ -> do
@@ -42,7 +42,7 @@ onErrorReturn !val !source =
 onErrorResumeNext :: (IObservable errSource, IObservable source)
               => errSource s a -> source s a -> Observable s a
 onErrorResumeNext !errSource !source =
-  Observable $ \observer -> do
+  newObservable $ \observer -> do
     sourceDisposable <- newBooleanDisposable
     rootDisposable <-
       subscribe source
@@ -62,10 +62,11 @@ onErrorResumeNext !errSource !source =
 
 retry :: (IObservable source)
       => Int -> source s a -> Observable s a
-retry !attempts !source = Observable $ \observer -> do
-    sourceDisposable <- newBooleanDisposable
-    retry_ sourceDisposable observer attempts
-    return $ toDisposable sourceDisposable
+retry !attempts !source =
+    newObservable $ \observer -> do
+      sourceDisposable <- newBooleanDisposable
+      retry_ sourceDisposable observer attempts
+      return $ toDisposable sourceDisposable
   where
     retry_ sourceDisposable observer attempt = do
       disposable <-

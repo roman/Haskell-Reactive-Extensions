@@ -1,6 +1,5 @@
 module Rx.Observable.DoTest where
 
-import Control.Exception (ErrorCall (..), fromException)
 import Data.IORef (atomicModifyIORef', newIORef, readIORef)
 import qualified Rx.Observable as Rx
 
