@@ -139,14 +139,15 @@ instance MonadIO (Observable Async) where
 
 instance Monad (Observable Async) where
   fail msg =
-    Observable $ \observer -> do
+    newObservableScheduler newThread $ \observer -> do
        onError observer
                (toException $ ErrorCall msg)
        emptyDisposable
 
   return result =
-    Observable $ \observer -> do
+    newObservableScheduler newThread $ \observer -> do
       onNext observer result
+      onCompleted observer
       emptyDisposable
 
   (>>=)  = Observable.flatMap
