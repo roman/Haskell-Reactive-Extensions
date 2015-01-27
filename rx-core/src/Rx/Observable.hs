@@ -80,8 +80,9 @@ module Rx.Observable
        ) where
 
 import Control.Applicative (Alternative (..), Applicative (..))
-import Control.Exception (ErrorCall (..), toException)
+import Control.Exception (ErrorCall (..), toException, try)
 import Control.Monad (MonadPlus (..))
+import Control.Monad.Trans (MonadIO(..))
 
 import qualified Rx.Observable.Distinct as Observable
 import qualified Rx.Observable.Do       as Observable
@@ -126,6 +127,15 @@ instance Alternative (Observable Async) where
 instance MonadPlus (Observable Async) where
   mzero = empty
   mplus = (<|>)
+
+instance MonadIO (Observable Async) where
+  liftIO action =
+    newObservableScheduler newThread $ \observer -> do
+      result <- try $ action
+      case result of
+        Right val -> onNext observer val
+        Left err  -> onError observer err
+      emptyDisposable
 
 instance Monad (Observable Async) where
   fail msg =
