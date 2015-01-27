@@ -1,7 +1,7 @@
 module Rx.Observable.Either where
 
 import Control.Concurrent (yield)
-import Control.Concurrent.MVar (newEmptyMVar, takeMVar, tryPutMVar)
+import Control.Concurrent.MVar (newEmptyMVar, readMVar, tryPutMVar)
 import Control.Exception (SomeException)
 import Control.Monad (void)
 
@@ -19,5 +19,5 @@ toEither source = do
                 (void . tryPutMVar completedVar . Left)
                 (return ())
     yield
-    result <- takeMVar completedVar
+    result <- readMVar completedVar
     return result
