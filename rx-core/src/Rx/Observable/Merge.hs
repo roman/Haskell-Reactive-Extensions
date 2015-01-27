@@ -2,7 +2,7 @@ module Rx.Observable.Merge where
 
 import Prelude hiding (mapM)
 
-import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
+import Control.Concurrent.MVar (newEmptyMVar, putMVar, readMVar)
 import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TVar (modifyTVar, newTVarIO, readTVar, writeTVar)
 import Control.Monad (void, when)
@@ -76,29 +76,25 @@ merge sources = Observable $ \outerObserver -> do
           when (subscribedCount == 0)
             $ onCompleted outerObserver
 
-
         onNext_ = onNext outerObserver
 
         onError_ sourceIdVar err = do
-          _ <- takeMVar sourceIdVar
+          _ <- readMVar sourceIdVar
           onError outerObserver err
           void $ dispose mainDisposable
 
         onCompleted_ sourceIdVar = do
-          sourceId <- takeMVar sourceIdVar
+          sourceId <- readMVar sourceIdVar
           shouldComplete <- atomically $ checkShouldComplete sourceId
           when shouldComplete $ onCompleted outerObserver
 
         checkShouldComplete sourceId = do
           sourceCompleted <- readTVar sourceCompletedVar
-
-          disposableMap <- readTVar disposableMapVar
-          let disposableMap1 = HashMap.delete sourceId disposableMap
-
-          if sourceCompleted && HashMap.null disposableMap1
+          disposableMap <- HashMap.delete sourceId `fmap` readTVar disposableMapVar
+          if sourceCompleted && HashMap.null disposableMap
              then return True
              else do
-               writeTVar disposableMapVar disposableMap1
+               writeTVar disposableMapVar disposableMap
                return False
 
 mergeList
