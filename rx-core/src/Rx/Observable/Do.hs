@@ -9,7 +9,7 @@ doAction :: IObservable source
          -> source s a
          -> Observable s a
 doAction !action !source =
-  Observable $ \observer -> do
+  newObservable $ \observer -> do
     subscribe
       source (\v -> action v >> onNext observer v)
              (onError observer)
@@ -21,7 +21,7 @@ doOnCompleted :: IObservable source
          -> source s a
          -> Observable s a
 doOnCompleted !action !source =
-  Observable $ \observer -> do
+  newObservable $ \observer ->
     subscribe
       source (onNext observer)
              (onError observer)
@@ -33,9 +33,10 @@ doOnError :: IObservable source
          -> source s a
          -> Observable s a
 doOnError !action !source =
-  Observable $ \observer -> do
-    subscribe
-      source (onNext observer)
-             (\err -> action err >> onError observer err)
-             (onCompleted observer)
+    newObservable $ \observer ->
+      subscribe
+        source
+        (onNext observer)
+        (\err -> action err >> onError observer err)
+        (onCompleted observer)
 {-# INLINE doOnError #-}
