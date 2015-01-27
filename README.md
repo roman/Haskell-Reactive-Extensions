@@ -2,9 +2,62 @@
 
 This is an experimental implementation of Rx in Haskell
 
-TODO: documentation
+## Example
 
-# LICENSE
+Using a sync scheduler:
+
+```haskell
+
+module Main where
+
+import qualified Rx.Observable as Rx
+
+main :: IO ()
+main = do
+  let source = Rx.fromList Rx.currentThread [1..10]
+  result <- Rx.subscribe print print (putStrLn "Stream Done")
+```
+
+Using an async scheduler (can only compose monadically through async):
+
+```haskell
+
+import Control.Applicative
+import Control.Lens
+
+import Data.Text
+import Data.Monoid ((<>))
+
+import Data.Aeson.Lens
+import Network.Wreq
+
+import qualified Rx.Observable as Rx
+
+getWeather :: Text -> IO (Maybe Text)
+getWeather cityLocation = do
+  let opts = defaults & param "q" .~ [cityLocation]
+  response <- getWith opts "http://api.openweathermap.org/data/2.5/weather"
+  let mcity = response ^? responseBody . key "name" . _String
+      mtemp = response ^? responseBody . key "weather" . nth 0 . key "description" . _String
+      result = do
+        city <- mcity
+        temp <- mtemp
+        return (temp <> " in " <> city)
+  return result
+
+cityMatch :: Rx.Observable Rx.Async (Maybe Text, Maybe Text)
+cityMatch =
+  (,) <$> Rx.toAsyncObservable (getWeather "Vancouver, BC")
+      <*> Rx.toAsyncObservable (getWeather "Toronto, ON")
+
+main :: IO ()
+main = do
+  result <- Rx.toEither cityMatch
+  print result
+
+```
+
+## LICENSE
 
 ```
 Copyright (c) 2014-2015, Roman Gonzalez
