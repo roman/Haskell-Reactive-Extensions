@@ -19,6 +19,7 @@ module Rx.Observable
        , newObservableScheduler
        , newObserver
        , unsafeSubscribe
+       , safeSubscribe
        , subscribe
        , subscribeOnNext
        , subscribeObserver

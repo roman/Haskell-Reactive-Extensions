@@ -9,7 +9,7 @@ import Data.Typeable (Typeable)
 import Control.Exception (AsyncException (ThreadKilled), Exception (..),
                           Handler (..), SomeException, catch, catches, throw,
                           throwIO, try)
-import Control.Monad (forever, void, when)
+import Control.Monad (forever, void, when, unless)
 
 
 import Control.Concurrent.Async (Async)
@@ -183,7 +183,6 @@ unsafeSubscribe !source !nextHandler !errHandler !complHandler =
     observerFn OnCompleted = complHandler
 {-# INLINE unsafeSubscribe #-}
 
-
 subscribe :: (IObservable observable)
           => observable s v
           -> (v -> IO ())
@@ -197,10 +196,10 @@ subscribe !source !nextHandler0 !errHandler0 !complHandler0 = do
     return $ toDisposable disposable
   where
     main completedVar disposable = do
-      disposable_ <- unsafeSubscribe source nextHandler errHandler complHandler
-      setDisposable disposable disposable_
-
-      where
+        disposable_ <-
+          unsafeSubscribe source nextHandler errHandler complHandler
+        setDisposable disposable disposable_
+     where
         checkCompletion = atomicModifyIORef' completedVar $ \wasCompleted ->
           if wasCompleted
             then (wasCompleted, False)
@@ -208,25 +207,41 @@ subscribe !source !nextHandler0 !errHandler0 !complHandler0 = do
 
         nextHandler v = do
           wasCompleted <- readIORef completedVar
-          if wasCompleted
-            then return ()
-            else
-              (v `seq` nextHandler0 v)
-                 `catches` [ Handler (\err@ThreadKilled -> throw err)
-                           , Handler errHandler ]
+          unless wasCompleted $
+              v `seq` nextHandler0 v
+
         errHandler err = do
           shouldComplete <- checkCompletion
           when shouldComplete $ do
-            dispose disposable
             errHandler0 err
+            dispose disposable
 
         complHandler = do
           shouldComplete <- checkCompletion
           when shouldComplete $ do
-            dispose disposable
             complHandler0
-
+            dispose disposable
 {-# INLINE subscribe #-}
+
+safeSubscribe :: IObservable observable
+  => observable s v
+  -> (v -> IO ())
+  -> (SomeException -> IO ())
+  -> IO ()
+  -> IO Disposable
+safeSubscribe !source nextHandler errHandler complHandler =
+    subscribe (secureSource source) nextHandler errHandler complHandler
+  where
+    secureSource :: IObservable source => source s v -> Observable s v
+    secureSource source' = Observable $ \observer ->
+        main observer
+      where
+        main observer =
+            subscribe source' onNext_ (onError observer) (onCompleted observer)
+          where
+            onNext_ v =
+              onNext observer v `catches` [ Handler (\err@ThreadKilled -> throw err)
+                                          , Handler (onError observer) ]
 
 
 subscribeOnNext :: (IObservable observable)
