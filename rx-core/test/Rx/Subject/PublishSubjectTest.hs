@@ -7,7 +7,7 @@ import Control.Concurrent (yield)
 import Control.Concurrent.Async (async, wait)
 import Control.Concurrent.STM (atomically, modifyTVar, newTVarIO, readTVar,
                                writeTVar)
-import Control.Monad (replicateM_, void, when)
+import Control.Monad (replicateM_)
 
 import qualified Rx.Observable as Rx
 import qualified Rx.Subject    as Rx (Subject, newPublishSubject)
@@ -21,6 +21,7 @@ assertError errMsg err assertion = do
     Just err' -> assertion err'
     Nothing   -> assertFailure errMsg
 
+errorExample :: ErrorCall
 errorExample = ErrorCall "call 611"
 
 tests :: Spec
@@ -68,7 +69,6 @@ tests =
 
 
       it "sends OnError immediately on new subscribers" $ do
-        let err = ErrorCall "call 911"
         subject <- Rx.newPublishSubject
         Rx.onError subject $ toException errorExample
         yield
@@ -121,7 +121,7 @@ tests =
         completed <- atomically $ readTVar completedVar
         assertBool "didn't receive OnCompleted notification" completed
 
-        
+
       it "sends OnCompleted immediately on new subscribers" $ do
         subject <- Rx.newPublishSubject :: IO (Rx.Subject Int)
         Rx.onCompleted subject
@@ -133,7 +133,7 @@ tests =
           Left _ ->
             assertFailure "Received failure when not expecting it"
 
-        
+
 
     describe "on subscription failure" $
       it "doesn't kill other subscriptions" $ do
@@ -144,15 +144,12 @@ tests =
               Rx.foldLeft (+) 0
                $ Rx.toAsyncObservable subject
 
-            source1 =
-              Rx.doAction
-               (const $ error errMsg)
-               $ source0
+            source1 = fail errMsg
 
         resultAsync <- async $ do
           result0 <- Rx.toEither source0
           result1 <- Rx.toEither source1
-          return (result0, result1)
+          return (result0, result1 :: Either SomeException Int)
 
         replicateM_ count $ Rx.onNext subject (1 :: Int)
         Rx.onCompleted subject
@@ -162,8 +159,8 @@ tests =
         case result of
           (Right n, Left err) -> do
             assertEqual "other subscriber is affected by error" count n
-            assertError "expecting error call" err $ \(ErrorCall errMsg) ->
-              assertEqual "" errMsg errMsg
+            assertError "expecting error call" err $ \(ErrorCall errMsg') ->
+              assertEqual "" errMsg errMsg'
 
           failure ->
             assertFailure $ "Expected Right and Left, got: " ++ show failure
