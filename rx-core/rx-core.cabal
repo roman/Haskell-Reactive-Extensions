@@ -79,6 +79,7 @@ library
     async,
     containers,
     unordered-containers,
+    mtl,
     stm,
     stm-chans,
     time,
