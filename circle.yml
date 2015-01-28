@@ -3,11 +3,12 @@ machine:
     version: 7.8.3
 test:
   pre:
+    - cabal update
     - cabal sandbox init
     - cabal sandbox add-source rx-disposable
     - cabal sandbox add-source rx-scheduler
     - cd rx-core && cabal sandbox init --sandbox=../.cabal-sandbox
-    - cd rx-core && cabal install --only-dependencies
+    - cd rx-core && cabal install --only-dependencies --enable-tests
     - cd rx-core && cabal configure --enable-tests
     - cd rx-core && cabal build
   override:
