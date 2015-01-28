@@ -1,0 +1,15 @@
+machine:
+  ghc:
+    version: 7.8.3
+test:
+  pre:
+    - cabal sandbox init
+    - cabal sandbox add-source rx-disposable
+    - cabal sandbox add-source rx-scheduler
+    - cd rx-core
+    - cabal sandbox init --sandbox=../.cabal-sandbox
+    - cabal install --only-dependencies
+    - cabal configure --enable-tests
+    - cabal build
+  override:
+    - cd rx-core && cabal test
