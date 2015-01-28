@@ -8,22 +8,35 @@ import Rx.Disposable (newBooleanDisposable, setDisposable, toDisposable)
 import Rx.Observable.Types
 
 catch :: (IObservable source, Exception e)
-         => (e -> IO ()) -> source s a -> Observable s a
+         => (e -> Observable s a) -> source s a -> Observable s a
 catch !errHandler !source =
     newObservable $ \observer -> do
-      subscribe source
-                    (onNext observer)
-                    (onError_ observer)
-                    (onCompleted observer)
+      disposable <- newBooleanDisposable
+      main disposable observer
+      return $ toDisposable disposable
   where
-    onError_ observer err =
-      case fromException err of
-        Just castedErr -> errHandler castedErr
-        Nothing -> onError observer err
+    main disposable observer = do
+        disposable_ <-
+            subscribe source (onNext observer)
+                             onError_
+                             (onCompleted observer)
+        setDisposable disposable disposable_
+      where
+        onError_ err =
+          case fromException err of
+            Just castedErr -> do
+              let newSource = errHandler castedErr
+              disposable_ <-
+                subscribe newSource
+                          (onNext observer)
+                          (onError observer)
+                          (onCompleted observer)
+              setDisposable disposable disposable_
+            Nothing -> onError observer err
 {-# INLINE catch #-}
 
 handle :: (IObservable source, Exception e)
-         => source s a -> (e -> IO ()) -> Observable s a
+         => source s a -> (e -> Observable s a) -> Observable s a
 handle = flip catch
 {-# INLINE handle #-}
 

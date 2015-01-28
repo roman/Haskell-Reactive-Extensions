@@ -59,6 +59,7 @@ module Rx.Observable
        , Observable.repeat'
        , Observable.repeatEvery
        , Observable.repeatEvery'
+       , Observable.retry
        , Observable.scanLeft
        , Observable.scanLeftItem
        , Observable.scanLeftItemM
