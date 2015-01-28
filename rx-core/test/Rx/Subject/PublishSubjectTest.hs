@@ -68,18 +68,6 @@ tests =
         assertBool "received OnCompleted when shouldn't have" (not completed)
 
 
-      it "sends OnError immediately on new subscribers" $ do
-        subject <- Rx.newPublishSubject
-        Rx.onError subject $ toException errorExample
-        yield
-        result <- Rx.toList (Rx.toAsyncObservable subject)
-        case result of
-         Left ([], err') -> assertEqual "got different exception"
-                                        (Just errorExample)
-                                        (fromException err')
-         _ -> assertFailure "Didn't receive a Left value"
-
-
     describe "once an OnCompleted notification is received" $ do
 
       it "doesn't send more OnNext notifications" $ do
@@ -120,19 +108,6 @@ tests =
 
         completed <- atomically $ readTVar completedVar
         assertBool "didn't receive OnCompleted notification" completed
-
-
-      it "sends OnCompleted immediately on new subscribers" $ do
-        subject <- Rx.newPublishSubject :: IO (Rx.Subject Int)
-        Rx.onCompleted subject
-        yield
-        result <- Rx.toList (Rx.toAsyncObservable subject)
-        case result of
-          Right evs ->
-            assertEqual "received notifications when shouldn't" [] evs
-          Left _ ->
-            assertFailure "Received failure when not expecting it"
-
 
 
     describe "on subscription failure" $
