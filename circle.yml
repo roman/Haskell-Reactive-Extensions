@@ -6,10 +6,9 @@ test:
     - cabal sandbox init
     - cabal sandbox add-source rx-disposable
     - cabal sandbox add-source rx-scheduler
-    - cd rx-core
-    - cabal sandbox init --sandbox=../.cabal-sandbox
-    - cabal install --only-dependencies
-    - cabal configure --enable-tests
-    - cabal build
+    - cd rx-core && cabal sandbox init --sandbox=../.cabal-sandbox
+    - cd rx-core && cabal install --only-dependencies
+    - cd rx-core && cabal configure --enable-tests
+    - cd rx-core && cabal build
   override:
     - cd rx-core && cabal test
