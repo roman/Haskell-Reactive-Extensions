@@ -15,7 +15,7 @@ import qualified Rx.Observable as Rx
 main :: IO ()
 main = do
   let source = Rx.fromList Rx.currentThread [1..10]
-  result <- Rx.subscribe print print (putStrLn "Stream Done")
+  result <- Rx.subscribe source print print (putStrLn "Stream Done")
 
 ```
 
