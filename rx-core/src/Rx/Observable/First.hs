@@ -2,9 +2,8 @@ module Rx.Observable.First where
 
 import Prelude hiding (take)
 
-import Control.Concurrent.MVar (newMVar, readMVar, swapMVar)
 import Control.Exception (ErrorCall (..), toException)
-import Control.Monad (void)
+import Data.IORef (atomicModifyIORef', newIORef)
 
 import Rx.Disposable (dispose, newSingleAssignmentDisposable, setDisposable,
                       toDisposable)
@@ -20,26 +19,32 @@ first = once . take 1
 once :: Observable Async a -> Observable Async a
 once source =
   Observable $ \observer -> do
-    onceVar <- newMVar Nothing
-    sourceDisposable <- newSingleAssignmentDisposable
-    innerDisposable <-
-      subscribe
-          source
-          (\v -> do
-            mOnce <- readMVar onceVar
-            case mOnce of
-              Nothing -> do
-                void $ swapMVar onceVar (Just v)
-                onNext observer v
-              Just _ -> do
-                let err = toException
-                             $ ErrorCall "once: expected to receive one element"
-                onError observer err
-                void $ dispose sourceDisposable)
-          (\err -> do
-            onError observer err
-            void $ dispose sourceDisposable)
-          (onCompleted observer)
+    onceVar <- newIORef False
+    disposable <- newSingleAssignmentDisposable
+    main onceVar disposable observer
+    return $ toDisposable disposable
+  where
+    main onceVar disposable observer = do
+        disposable_ <- subscribe source
+                                 onNext_
+                                 onError_
+                                 (onCompleted observer)
+        setDisposable disposable disposable_
+      where
+        onNext_ v = do
+          alreadyEmitted <- atomicModifyIORef' onceVar $ \onceVal ->
+            if onceVal
+              then (True, True)
+              else (True, False)
 
-    setDisposable sourceDisposable innerDisposable
-    return $ toDisposable sourceDisposable
+          if alreadyEmitted
+            then do
+              let err = toException
+                           $ ErrorCall "once: expected to receive one element"
+              onError observer err
+              dispose disposable
+            else onNext observer v
+
+        onError_ err = do
+          onError observer err
+          dispose disposable
