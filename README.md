@@ -1,5 +1,7 @@
 # Haskell Reactive Extensions
 
+[![CircleCI](https://circleci.com/gh/roman/Haskell-Reactive-Extensions.svg?style=shield&circle-token=:circle-token)](https://circleci.com/gh/roman/Haskell-Reactive-Extensions)
+
 This is an experimental implementation of Rx in Haskell
 
 ## Example
