@@ -14,7 +14,7 @@ import qualified Rx.Subject    as Rx
 main :: IO ()
 main = defaultMain [
       bench "foldl'" $ nf (foldl' (+) 0) inputList
-      bgroup "Rx.foldLeft" [
+    , bgroup "Rx.foldLeft" [
         bench "withtout contention" $ nfIO normalFoldLeft
       , bench "with contention (10 threads)"
           $ nfIO (highContentionFoldLeft 10)
@@ -26,8 +26,8 @@ main = defaultMain [
           $ nfIO (highContentionFoldLeft 1000) ]
     , bgroup "Rx.merge" [
         bench "with contention (10000 threads)"
-          $ nfIO (highContentionMerge 10000)
-      ]]
+          $ nfIO (highContentionMerge 10000)]
+     ]
   where
     inputList :: [Int]
     inputList = replicate 1000000 1
