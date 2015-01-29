@@ -71,7 +71,7 @@ main = do
 
 ## Benchmarks
 
-Running benchmarks through [criterion](https://github.com/roman/Haskell-Reactive-Extensions/blob/master/rx-core/bench/RxBenchmark.hs)
+Running benchmarks through [criterion](https://github.com/roman/Haskell-Reactive-Extensions/blob/master/rx-core/bench/RxBenchmark.hs) on a Mac OS X 10.9, 2.8GHz Intel Core i7 Quad-Core, 16GB 1600 MHz DDR3
 
 ```
 benchmarking foldl'
