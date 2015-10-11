@@ -1,3 +1,0 @@
-:set -isrc -itest
-:m + System.IO
-hSetBuffering stdout LineBuffering
