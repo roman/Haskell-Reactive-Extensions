@@ -1,6 +1,7 @@
+{-# LANGUAGE NoImplicitPrelude #-}
 module Rx.Observable.Timeout where
 
-import Data.Monoid (mappend)
+import Prelude.Compat
 
 import Control.Exception (toException)
 import Control.Monad (void, when)
@@ -22,7 +23,7 @@ data TimeoutOptions a
       _timeoutInterval        :: TimeInterval
     , _timeoutStartAfterFirst :: Bool
     , _completeOnTimeout      :: Bool
-    , _resetTimeoutWhen       :: (a -> Bool)
+    , _resetTimeoutWhen       :: a -> Bool
     , _timeoutScheduler       :: Scheduler Async
     }
 
@@ -84,7 +85,7 @@ timeoutWith modFn source =
         resetTimeout
         subscribe source onNext_ onError_ onCompleted_
       where
-        onTimeout = do
+        onTimeout =
           if _completeOnTimeout opts
             then onCompleted observer
             else onError observer $ toException TimeoutError

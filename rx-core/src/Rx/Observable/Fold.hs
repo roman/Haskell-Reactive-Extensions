@@ -1,7 +1,9 @@
+{-# LANGUAGE NoImplicitPrelude #-}
 module Rx.Observable.Fold where
 
+import Prelude.Compat
+
 import Data.IORef (atomicModifyIORef', newIORef, readIORef)
-import Data.Monoid (Monoid (..))
 
 import Rx.Observable.Types
 
@@ -33,4 +35,4 @@ foldMap :: (IObservable source, Monoid b)
         -> Observable s b
 foldMap toMonoid = foldLeft foldFn mempty
   where
-    foldFn acc a = (acc `mappend` toMonoid a)
+    foldFn acc a = acc `mappend` toMonoid a

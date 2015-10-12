@@ -23,10 +23,10 @@ module Rx.Scheduler
        where
 
 import Control.Monad (when)
-import Tiempo (TimeInterval, seconds)
+import Tiempo (TimeInterval)
 
-import Rx.Disposable (Disposable, emptyDisposable, newBooleanDisposable,
-                      newDisposable, setDisposable, toDisposable)
+import Rx.Disposable (Disposable, newBooleanDisposable,
+                       setDisposable, toDisposable)
 
 import Rx.Scheduler.CurrentThread
 import Rx.Scheduler.NewThread
@@ -64,9 +64,9 @@ scheduleRecursiveState ::
   -> st
   -> (st -> IO (Maybe st))
   -> IO Disposable
-scheduleRecursiveState scheduler !st action = do
+scheduleRecursiveState scheduler !st0 action = do
     outerDisp <- newBooleanDisposable
-    main outerDisp st
+    main outerDisp st0
     return $ toDisposable outerDisp
   where
     main outerDisp !st = do
@@ -83,9 +83,9 @@ scheduleTimedRecursive ::
   -> TimeInterval
   -> IO (Maybe TimeInterval)
   -> IO Disposable
-scheduleTimedRecursive scheduler !interval action = do
+scheduleTimedRecursive scheduler !interval0 action = do
     outerDisp <- newBooleanDisposable
-    main outerDisp interval
+    main outerDisp interval0
     return $ toDisposable outerDisp
   where
     main outerDisp !interval = do
@@ -103,9 +103,9 @@ scheduleTimedRecursiveState ::
   -> st
   -> (st -> IO (Maybe (st, TimeInterval)))
   -> IO Disposable
-scheduleTimedRecursiveState scheduler interval st action = do
+scheduleTimedRecursiveState scheduler interval0 st0 action = do
     outerDisp <- newBooleanDisposable
-    main outerDisp interval st
+    main outerDisp interval0 st0
     return $ toDisposable outerDisp
   where
     main outerDisp !interval !st = do

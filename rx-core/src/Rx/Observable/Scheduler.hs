@@ -1,6 +1,7 @@
+{-# LANGUAGE NoImplicitPrelude #-}
 module Rx.Observable.Scheduler where
 
-import Data.Monoid (mappend)
+import Prelude.Compat
 
 import Rx.Disposable (newBooleanDisposable, setDisposable, toDisposable)
 import Rx.Scheduler (IScheduler, schedule)

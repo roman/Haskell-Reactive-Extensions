@@ -1,9 +1,8 @@
+{-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE RankNTypes #-}
 module Rx.Observable.Zip where
 
-import Prelude hiding (zip, zipWith)
-
-import Data.Monoid (mappend)
+import Prelude.Compat hiding (zip, zipWith)
 
 import Control.Concurrent (yield)
 import Control.Concurrent.STM (TQueue, atomically, isEmptyTQueue, modifyTVar,
@@ -57,7 +56,7 @@ zipWith zipFn sourceA sourceB = Observable $ \observer -> do
       where
         whileNotCompleted action = do
           wasCompleted <- atomically $ readTVar isCompletedVar
-          unless wasCompleted $ action
+          unless wasCompleted action
 
         isAnyQueueEmpty = atomically $ do
           q1IsEmpty <- isEmpty queue1
@@ -86,14 +85,14 @@ zipWith zipFn sourceA sourceB = Observable $ \observer -> do
           conj queue2 b
           onNext_
 
-        onError_ err = whileNotCompleted $ do
+        onError_ err = whileNotCompleted $
           onError observer err
 
         onCompleted_ = whileNotCompleted $ do
           isCompleted <- atomically $ do
             modifyTVar completedCountVar succ
             completedCount <- readTVar completedCountVar
-            if (completedCount == 2)
+            if completedCount == 2
               then do
                 writeTVar isCompletedVar True
                 return True
