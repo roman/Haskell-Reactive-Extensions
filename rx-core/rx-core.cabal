@@ -16,7 +16,8 @@ benchmark rx-core-bench
   type: exitcode-stdio-1.0
   main-is: RxBenchmark.hs
   build-depends:
-    base >=4.7 && <4.8,
+    base >=4.7 && <4.9,
+    base-compat,
     async,
     criterion,
     rx-core
@@ -28,8 +29,9 @@ test-suite rx-core-testsuite
   type: exitcode-stdio-1.0
   main-is: TestSuite.hs
   build-depends:
-    base >=4.7 && <4.8,
+    base >=4.7 && <4.9,
     async,
+    base-compat,
     hspec,
     HUnit,
     QuickCheck,
@@ -75,8 +77,9 @@ library
     Rx.Subject.SyncPublishSubject
 
   build-depends:
-    base >=4.7 && <4.8,
+    base >=4.7 && <4.9,
     async,
+    base-compat,
     containers,
     unordered-containers,
     mtl,

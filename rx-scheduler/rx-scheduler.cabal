@@ -22,7 +22,7 @@ library
     Rx.Scheduler.SingleThread
   -- other-extensions:
   build-depends:
-    base >=4.7 && <4.8,
+    base >=4.7 && <4.9,
     rx-disposable,
     stm,
     tiempo

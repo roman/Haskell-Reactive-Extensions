@@ -21,7 +21,7 @@ library
 
   -- other-extensions:
   build-depends:
-    base >=4.7 && <4.8,
+    base >=4.7 && <4.9,
     stm
 
   hs-source-dirs:      src
@@ -34,11 +34,10 @@ test-suite rx-disposable-tests
   hs-source-dirs: test
   default-language: Haskell2010
   build-depends:
-    base >= 4.7 && <4.8,
+    base >= 4.7 && <4.9,
     hspec,
     HUnit,
     stm,
     QuickCheck,
 
     rx-disposable
-  
