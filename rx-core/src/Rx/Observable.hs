@@ -1,4 +1,5 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE FlexibleInstances #-}
 module Rx.Observable
        ( IScheduler
@@ -11,6 +12,7 @@ module Rx.Observable
 
        , IObservable (..)
        , Observable (..)
+       , ConnectableObservable
        , IObserver (..)
        , ToObserver (..)
        , ToAsyncObservable (..)
@@ -70,6 +72,9 @@ module Rx.Observable
        , Observable.zip
        , Observable.zipWith
 
+       , Observable.publish
+       , Observable.connect
+
        , Observable.timeout
        , Observable.timeoutWith
        , Observable.timeoutScheduler
@@ -83,7 +88,9 @@ module Rx.Observable
        , Observable.toEither
        ) where
 
-import Control.Applicative (Alternative (..), Applicative (..))
+import Prelude.Compat
+
+import Control.Applicative (Alternative (..))
 import Control.Exception (ErrorCall (..), toException, try)
 import Control.Monad (MonadPlus (..))
 import Control.Monad.Trans (MonadIO(..))
@@ -102,6 +109,7 @@ import qualified Rx.Observable.Maybe    as Observable
 import qualified Rx.Observable.Merge    as Observable
 import qualified Rx.Observable.Repeat   as Observable
 import qualified Rx.Observable.Scan     as Observable
+import qualified Rx.Observable.Publish  as Observable
 import qualified Rx.Observable.Take     as Observable
 import qualified Rx.Observable.Throttle as Observable
 import qualified Rx.Observable.Timeout  as Observable
@@ -135,7 +143,7 @@ instance MonadPlus (Observable Async) where
 instance MonadIO (Observable Async) where
   liftIO action =
     newObservableScheduler newThread $ \observer -> do
-      result <- try $ action
+      result <- try action
       case result of
         Right val -> onNext observer val
         Left err  -> onError observer err

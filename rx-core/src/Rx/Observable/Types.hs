@@ -3,7 +3,6 @@
 module Rx.Observable.Types where
 
 import Data.IORef (atomicModifyIORef', newIORef, readIORef)
-import Data.Monoid (mappend, mempty)
 import Data.Typeable (Typeable)
 
 import Control.Exception (AsyncException (ThreadKilled), Exception (..),
@@ -76,6 +75,13 @@ newtype Observer v
 newtype Observable s a =
   Observable { _onSubscribe :: Observer a -> IO Disposable }
 
+data ConnectableObservable a
+  = ConnectableObservable {
+    _coOnSubscribe   :: Observer a -> IO Disposable
+  , _coConnect       :: IO ()
+  , _coDisposeSource :: IO ()
+  }
+
 data TimeoutError
   = TimeoutError
   deriving (Show, Typeable)
@@ -123,6 +129,10 @@ instance IObserver Observer where
 instance IObservable Observable where
   onSubscribe = _onSubscribe
   {-# INLINE onSubscribe #-}
+
+instance ToAsyncObservable ConnectableObservable where
+  toAsyncObservable = Observable . _coOnSubscribe
+  {-# INLINE toAsyncObservable #-}
 
 --------------------
 

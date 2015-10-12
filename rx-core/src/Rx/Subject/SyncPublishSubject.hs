@@ -8,8 +8,6 @@ module Rx.Subject.SyncPublishSubject (
   , create
   ) where
 
-import Control.Applicative
-
 import Control.Concurrent.Async (async)
 import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TChan (newTChanIO, readTChan, writeTChan)
@@ -17,7 +15,7 @@ import Control.Concurrent.STM.TChan (newTChanIO, readTChan, writeTChan)
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Unique         as Unique
 
-import Rx.Disposable (newDisposable, emptyDisposable)
+import Rx.Disposable (newDisposable)
 import Rx.Observable.Types
 import qualified Rx.Notification as Notification
 

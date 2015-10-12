@@ -65,6 +65,7 @@ library
     Rx.Observable.Map,
     Rx.Observable.Maybe,
     Rx.Observable.Merge,
+    Rx.Observable.Publish,
     Rx.Observable.Repeat,
     Rx.Observable.Scan,
     Rx.Observable.Scheduler,

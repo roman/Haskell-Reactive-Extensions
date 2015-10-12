@@ -9,7 +9,6 @@ module Rx.Subject.PublishSubject (
   , create
   ) where
 
-import Control.Applicative
 import Control.Exception (Exception (..), try)
 import Control.Monad (forM_, replicateM_)
 import Data.Typeable (Typeable)
@@ -83,30 +82,14 @@ create = do
           atomically $ writeTChan subjChan (OnSubscribe subId observer)
           newDisposable "PublishSubject.subscribe"
             $ atomically $ writeTChan subjChan (OnDispose subId)
-          -- wasCompleted <- atomically $ readTVar completedVar
-          -- case wasCompleted of
-          --   Nothing -> do
-          --     subId <- Unique.hashUnique <$> Unique.newUnique
-          --     atomically $ writeTChan subjChan (OnSubscribe subId observer)
-          --     newDisposable "PublishSubject.subscribe"
-          --       $ atomically
-          --       $ writeTChan subjChan (OnDispose subId)
-
-          --   Just (Left err) -> do
-          --     onError observer err
-          --     emptyDisposable
-
-          --   Just (Right _) -> do
-          --     onCompleted observer
-          --     emptyDisposable
 
         observerSubscriptionLoop subChan observer = do
           notification <- atomically $ readTChan subChan
           case notification of
-            OnNext {} -> do
+            OnNext {} ->
               observerSubscriptionAccept
                 observer notification (observerSubscriptionLoop subChan observer)
-            _ -> do
+            _ ->
               observerSubscriptionAccept
                 observer notification (return ())
 
@@ -121,7 +104,3 @@ create = do
           -- when using a Subject of subjects
           replicateM_ 2 yield
           atomically $ writeTChan subjChan (OnEmit notification)
-          -- wasCompleted <- atomically $ readTVar completedVar
-          -- case wasCompleted of
-          --   Nothing ->  atomically $ writeTChan subjChan (OnEmit notification)
-          --   _ -> return ()
