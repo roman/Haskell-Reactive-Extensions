@@ -1,3 +1,4 @@
+{-# LANGUAGE NoImplicitPrelude          #-}
 {-# LANGUAGE DeriveDataTypeable         #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Rx.Disposable
@@ -19,9 +20,10 @@ module Rx.Disposable
        , DisposeResult
        ) where
 
+import Prelude.Compat
+
 import Control.Exception (SomeException, try)
-import Control.Monad (void)
-import Data.Monoid (Monoid (..))
+import Control.Monad (liftM, void)
 import Data.Typeable (Typeable)
 
 import Control.Concurrent.MVar (MVar, modifyMVar, newMVar, putMVar, readMVar,
@@ -95,7 +97,7 @@ instance SetDisposable BooleanDisposable where
     oldDisposable <- swapMVar currentVar disposable
     void $ disposeWithResult oldDisposable
 
--- --------------------
+--------------------
 
 instance IDisposable SingleAssignmentDisposable where
   disposeWithResult (SingleAssignmentDisposable disposableVar) = do
@@ -123,7 +125,7 @@ disposeErrorList = foldr accJust [] . fromDisposeResult
     accJust (desc, Just err) acc = (desc, err) : acc
 {-# INLINE disposeErrorList #-}
 
-disposeActionList :: DisposeResult -> [(DisposableDescription, Maybe SomeException)]    
+disposeActionList :: DisposeResult -> [(DisposableDescription, Maybe SomeException)]
 disposeActionList = fromDisposeResult
 {-# INLINE disposeActionList #-}
 
@@ -136,7 +138,7 @@ disposeErrorCount = length . disposeErrorList
 {-# INLINE disposeErrorCount #-}
 
 --------------------
-  
+
 dispose :: IDisposable disposable => disposable -> IO ()
 dispose = void . disposeWithResult
 {-# INLINE dispose #-}
@@ -148,7 +150,7 @@ emptyDisposable = return mempty
 newDisposable :: DisposableDescription -> IO () -> IO Disposable
 newDisposable desc disposingAction = do
   disposeResultVar <- newMVar Nothing
-  return $ Disposable $
+  return $ Disposable
     [modifyMVar disposeResultVar $ \disposeResult ->
       case disposeResult of
         Just result -> return (Just result, result)
@@ -159,11 +161,11 @@ newDisposable desc disposingAction = do
 {-# INLINE newDisposable #-}
 
 newBooleanDisposable :: IO BooleanDisposable
-newBooleanDisposable = do
-  newMVar mempty >>= return . BooleanDisposable
+newBooleanDisposable =
+  liftM BooleanDisposable (newMVar mempty)
 {-# INLINE newBooleanDisposable #-}
 
 newSingleAssignmentDisposable :: IO SingleAssignmentDisposable
-newSingleAssignmentDisposable = do
-  newMVar Nothing >>= return . SingleAssignmentDisposable
+newSingleAssignmentDisposable =
+  liftM SingleAssignmentDisposable (newMVar Nothing)
 {-# INLINE newSingleAssignmentDisposable #-}
