@@ -14,18 +14,17 @@ import qualified Data.HashMap.Strict as HashMap
 import Rx.Disposable (dispose, newDisposable, newSingleAssignmentDisposable,
                       setDisposable)
 
-import Rx.Scheduler (Async, newThread)
+import Rx.Scheduler (Async, currentThread)
 
 import Rx.Observable.Types
 import qualified Rx.Observable.List as Observable
 
-merge :: (IObservable source, IObservable observable)
-      => source Async (observable Async a)
+merge :: Observable s (Observable Async a)
       -> Observable Async a
 merge sources = Observable $ \outerObserver -> do
     mainDisposable     <- newSingleAssignmentDisposable
     sourceCompletedVar <- newTVarIO False
-    disposableMapVar   <- newTVarIO $ HashMap.empty
+    disposableMapVar   <- newTVarIO HashMap.empty
     main outerObserver
          mainDisposable
          disposableMapVar
@@ -97,9 +96,6 @@ merge sources = Observable $ \outerObserver -> do
                writeTVar disposableMapVar disposableMap
                return False
 
-mergeList
-  :: (IObservable observable)
-  => [observable Async a]
-  -> Observable Async a
+mergeList :: [Observable Async a] -> Observable Async a
 mergeList =
-  merge . Observable.fromList newThread
+  merge . Observable.fromList currentThread
