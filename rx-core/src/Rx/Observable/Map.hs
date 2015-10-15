@@ -8,9 +8,8 @@ import Rx.Observable.Types
 
 --------------------------------------------------------------------------------
 
-concatMapM :: (IObservable observable)
-           => (a -> IO [b])
-           -> observable s a
+concatMapM :: (a -> IO [b])
+           -> Observable s a
            -> Observable s b
 concatMapM mapFn source =
   Observable $ \observer -> do
@@ -19,32 +18,28 @@ concatMapM mapFn source =
       (onError observer)
       (onCompleted observer)
 
-concatMap :: (IObservable observable)
-          => (a -> [b])
-          -> observable s a
+concatMap :: (a -> [b])
+          -> Observable s a
           -> Observable s b
 concatMap mapFn = concatMapM (return . mapFn)
 
 --------------------------------------------------------------------------------
 
-mapM :: (IObservable observable)
-     => (a -> IO b)
-     -> observable s a
+mapM :: (a -> IO b)
+     -> Observable s a
      -> Observable s b
 mapM mapFn =
   concatMapM (\a -> return `fmap` mapFn a)
 
-map :: (IObservable observable)
-    => (a -> b)
-    -> observable s a
+map :: (a -> b)
+    -> Observable s a
     -> Observable s b
 map mapFn =
   mapM (return . mapFn)
 
 --------------------------------------------------------------------------------
 
-flatMap :: (IObservable observableSource, IObservable observableResult)
-        => observableSource Async a
-        -> (a -> observableResult Async b)
+flatMap :: Observable Async a
+        -> (a -> Observable Async b)
         -> Observable Async b
 flatMap source mapFn = Observable.merge $ map mapFn source

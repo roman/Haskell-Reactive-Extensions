@@ -7,11 +7,10 @@ import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
 import Data.IORef (atomicModifyIORef', newIORef, readIORef)
 
 import Rx.Observable.Types
-import Rx.Scheduler (Scheduler, schedule)
+import Rx.Scheduler (IScheduler, schedule)
 
 toList
-  :: IObservable source
-  => source s a
+  :: Observable s a
   -> IO (Either ([a], SomeException) [a])
 toList source = do
   doneVar <- newEmptyMVar
@@ -28,7 +27,7 @@ toList source = do
   takeMVar doneVar
 
 
-fromList :: Scheduler s -> [a] -> Observable s a
+fromList :: IScheduler scheduler => scheduler s -> [a] -> Observable s a
 fromList scheduler as = Observable $ \observer ->
   schedule scheduler $ do
     mapM_ (onNext observer) as

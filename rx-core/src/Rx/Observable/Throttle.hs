@@ -11,9 +11,8 @@ import Rx.Observable.Types
 
 --------------------------------------------------------------------------------
 
-throttle :: IObservable observable
-         => TimeInterval
-         -> observable s a
+throttle :: TimeInterval
+         -> Observable s a
          -> Observable s a
 throttle delay source =
     Observable $ \observer -> do
