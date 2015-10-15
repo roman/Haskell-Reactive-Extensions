@@ -77,9 +77,9 @@ newtype Observable s a =
 
 data ConnectableObservable a
   = ConnectableObservable {
-    _coOnSubscribe   :: Observer a -> IO Disposable
-  , _coConnect       :: IO ()
-  , _coDisposeSource :: IO ()
+    _coOnSubscribe :: Observer a -> IO Disposable
+  , _coConnect     :: IO ()
+  , _coDisconnect  :: IO ()
   }
 
 data TimeoutError
