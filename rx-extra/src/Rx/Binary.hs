@@ -1,5 +1,6 @@
 {-# LANGUAGE BangPatterns       #-}
 {-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE NoImplicitPrelude  #-}
 module Rx.Binary (
     fromFile
   , toFile
@@ -13,28 +14,25 @@ module Rx.Binary (
   , unlines
   ) where
 
-import Prelude hiding (lines, unlines)
+import           Control.Exception             (Exception (..), SomeException,
+                                                catch, mask, throwIO, try)
+import           Control.Monad                 (unless, void)
+import           Data.ByteString.Lazy.Internal (defaultChunkSize)
+import           Data.IORef                    (atomicModifyIORef', newIORef,
+                                                readIORef)
+import           Data.Monoid                   ((<>))
+import           Data.Typeable                 (Typeable)
+import           Prelude.Compat                hiding (lines, unlines)
 
-import Control.Exception (Exception (..), SomeException, catch, mask, throwIO,
-                          try)
-import Data.Typeable (Typeable)
+import qualified Data.Binary                   as B
+import qualified Data.ByteString               as BS
+import qualified Data.ByteString.Lazy          as LB
+import qualified Data.Streaming.FileRead       as FR
+import qualified System.IO                     as IO
 
-import Control.Monad (unless, void)
-
-import Data.ByteString.Lazy.Internal (defaultChunkSize)
-import Data.IORef (atomicModifyIORef', newIORef, readIORef)
-import Data.Monoid ((<>))
-import qualified Data.Binary             as B
-import qualified Data.ByteString         as BS
-import qualified Data.ByteString.Lazy    as LB
-import qualified Data.Streaming.FileRead as FR
-
-import qualified System.IO as IO
-
-import Rx.Disposable (newDisposable, toDisposable)
-import Rx.Observable (Observable (..), onCompleted, onError, onNext)
-import qualified Rx.Observable as Rx
-import qualified Rx.Scheduler  as Rx (IScheduler, schedule)
+import           Rx.Observable                 (Observable (..), onCompleted,
+                                                onError, onNext)
+import qualified Rx.Observable                 as Rx
 
 --------------------------------------------------------------------------------
 
@@ -60,7 +58,6 @@ bracketWithException !accquire !release !onErrorCb !perform =
   where
     onErrorAndRaise restore err = restore (onErrorCb err) >> throwIO err
 {-# INLINE bracketWithException #-}
-
 
 fromFile
   :: Rx.IScheduler scheduler
@@ -90,14 +87,14 @@ fromHandle !scheduler !h = Observable $ \observer ->
       case result of
         Right bs
           | BS.null bs -> onCompleted observer
-          | otherwise  -> onNext observer bs
+          | otherwise  -> onNext observer bs >> loop observer
         Left err -> onError observer err
 {-# INLINE fromHandle #-}
 
 --------------------
 
 toHandle
-  :: Rx.IObservable source => IO.Handle -> source s BS.ByteString -> Observable s ()
+  :: IO.Handle -> Observable s BS.ByteString -> Observable s ()
 toHandle !h !source = Observable $ \observer ->
   Rx.subscribe source (BS.hPutStr h)
                       (onError observer)
@@ -105,7 +102,7 @@ toHandle !h !source = Observable $ \observer ->
                           onCompleted observer)
 {-# INLINE toHandle #-}
 
-toFile :: Rx.IObservable source => FilePath -> source s BS.ByteString -> Observable s ()
+toFile :: FilePath -> Observable s BS.ByteString -> Observable s ()
 toFile !filepath !source = Observable $ \observer -> do
   h <- IO.openFile filepath IO.WriteMode
   sourceDisposable <-
@@ -116,7 +113,7 @@ toFile !filepath !source = Observable $ \observer -> do
                         (do IO.hClose h
                             onNext observer ()
                             onCompleted observer)
-  fileDisposable <- newDisposable "Observable.toFile" $ IO.hClose h
+  fileDisposable <- Rx.newDisposable "Observable.toFile" $ IO.hClose h
   return $ sourceDisposable <> fileDisposable
 {-# INLINE toFile #-}
 
@@ -124,9 +121,8 @@ toFile !filepath !source = Observable $ \observer -> do
 --------------------
 
 sepBy
-  :: Rx.IObservable source
-     => B.Word8
-     -> source s BS.ByteString
+  :: B.Word8
+     -> Observable s BS.ByteString
      -> Observable s BS.ByteString
 sepBy !sepByte !source = Observable $ \observer -> do
     bufferVar <- newIORef id
@@ -137,7 +133,7 @@ sepBy !sepByte !source = Observable $ \observer -> do
           source (onNext_ id) onError_ onCompleted_
       where
         onNext_ appendPrev inputBS = do
-          let (first, second) = BS.breakByte sepByte inputBS
+          let (first, second) = BS.break (sepByte ==) inputBS
           case BS.uncons second of
             Just (_, rest) -> do
               onNext observer (appendPrev first)
@@ -164,9 +160,8 @@ sepBy !sepByte !source = Observable $ \observer -> do
 {-# INLINE sepBy #-}
 
 joinWith
-  :: Rx.IObservable source
-     => B.Word8
-     -> source s BS.ByteString
+  :: B.Word8
+     -> Observable s BS.ByteString
      -> Observable s BS.ByteString
 joinWith !sepByte = Rx.map $ \input -> input <> sepBS
   where
@@ -176,31 +171,29 @@ joinWith !sepByte = Rx.map $ \input -> input <> sepBS
 --------------------
 
 lines
-  :: Rx.IObservable source
-     => source s BS.ByteString
+  :: Observable s BS.ByteString
      -> Observable s BS.ByteString
 lines = sepBy 10
 {-# INLINE lines #-}
 
 unlines
-  :: Rx.IObservable source
-     => source s BS.ByteString
+  :: Observable s BS.ByteString
      -> Observable s BS.ByteString
 unlines = joinWith 10
 {-# INLINE unlines #-}
 
 --------------------
 
-encode :: (B.Binary b, Rx.IObservable source)
-       => source s b
+encode :: (B.Binary b)
+       => Observable s b
        -> Observable s BS.ByteString
 encode =
   joinWith 0
   . Rx.concatMap (LB.toChunks . B.encode)
 {-# INLINE encode #-}
 
-decode :: (B.Binary b, Rx.IObservable source)
-       => source s BS.ByteString
+decode :: (B.Binary b)
+       => Observable s BS.ByteString
        -> Observable s b
 decode !source0 = Observable $ \observer -> main observer
   where

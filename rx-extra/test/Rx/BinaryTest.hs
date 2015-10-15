@@ -1,4 +1,7 @@
+{-# LANGUAGE NoImplictPrelude #-}
 module Rx.BinaryTest where
+
+import Prelude.Compat
 
 import Control.Exception (finally)
 import Control.Monad (void)
