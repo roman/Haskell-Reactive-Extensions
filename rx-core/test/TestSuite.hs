@@ -2,6 +2,7 @@ module Main where
 
 import Test.Hspec (hspec)
 
+import qualified Rx.Observable.ConcatTest
 import qualified Rx.Observable.DistinctTest
 import qualified Rx.Observable.DoTest
 import qualified Rx.Observable.ErrorTest
@@ -15,6 +16,7 @@ import qualified Rx.Subject.PublishSubjectTest
 
 main :: IO ()
 main = hspec $ do
+  Rx.Observable.ConcatTest.tests
   Rx.Observable.DistinctTest.tests
   Rx.Observable.DoTest.tests
   Rx.Observable.ErrorTest.tests

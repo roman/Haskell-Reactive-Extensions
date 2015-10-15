@@ -53,6 +53,7 @@ library
   other-modules:
     Rx.Notification,
     Rx.Observable.Types,
+    Rx.Observable.Concat,
     Rx.Observable.Distinct,
     Rx.Observable.Do,
     Rx.Observable.Either,

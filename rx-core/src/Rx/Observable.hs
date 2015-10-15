@@ -35,6 +35,8 @@ module Rx.Observable
        , emptyDisposable
 
        , Observable.catch
+       , Observable.concat
+       , Observable.concatList
        , Observable.concatMap
        , Observable.concatMapM
        , Observable.distinct
@@ -95,6 +97,7 @@ import Control.Exception (ErrorCall (..), toException, try)
 import Control.Monad (MonadPlus (..))
 import Control.Monad.Trans (MonadIO(..))
 
+import qualified Rx.Observable.Concat   as Observable
 import qualified Rx.Observable.Distinct as Observable
 import qualified Rx.Observable.Do       as Observable
 import qualified Rx.Observable.Either   as Observable
