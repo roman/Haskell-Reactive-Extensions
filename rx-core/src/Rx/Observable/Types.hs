@@ -1,6 +1,9 @@
+{-# LANGUAGE NoImplicitPrelude  #-}
 {-# LANGUAGE BangPatterns       #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 module Rx.Observable.Types where
+
+import Prelude.Compat
 
 import Data.IORef (atomicModifyIORef', newIORef, readIORef)
 import Data.Typeable (Typeable)
