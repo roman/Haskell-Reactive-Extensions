@@ -10,9 +10,10 @@ import qualified Data.Set as Set
 -- | Returns an `Observable` that emits all items emitted by the
 -- source `Observable` that are distinct.
 --
-distinct :: (IObservable source, Eq a, Ord a)
-         => source s a
-         -> Observable s a
+distinct
+  :: (Eq a, Ord a)
+     => Observable s a
+     -> Observable s a
 distinct !source =
     Observable $ \observer -> do
       cacheVar <- newIORef Set.empty
@@ -33,10 +34,11 @@ distinct !source =
 -- source `Observable` that are distinct from their immediate
 -- predecessors, according to a key selector function.
 --
-distinctUntilChangedWith :: (IObservable source, Eq b)
-                         => (a -> b)
-                         -> source s a
-                         -> Observable s a
+distinctUntilChangedWith
+  :: (Eq b)
+     => (a -> b)
+     -> Observable s a
+     -> Observable s a
 distinctUntilChangedWith !mapFn !source =
     Observable $ \observer -> do
       priorValVar <- newIORef Nothing
@@ -59,7 +61,9 @@ distinctUntilChangedWith !mapFn !source =
 -- | Returns an `Observable` that emits all items emitted by the source
 -- `Observable` that are distinct from their immediate predecessors.
 --
-distinctUntilChanged :: (IObservable source, Eq a)
-                     => source s a -> Observable s a
+distinctUntilChanged
+  :: (Eq a)
+     => Observable s a
+     -> Observable s a
 distinctUntilChanged = distinctUntilChangedWith id
 {-# INLINE distinctUntilChanged #-}

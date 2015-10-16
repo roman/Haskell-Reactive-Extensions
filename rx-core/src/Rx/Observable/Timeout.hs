@@ -53,10 +53,9 @@ completeOnTimeout opts = opts { _completeOnTimeout = True }
 --------------------------------------------------------------------------------
 
 timeoutWith
-  :: IObservable source
-  => (TimeoutOptions a -> TimeoutOptions a)
-  -> source Async a
-  -> Observable Async a
+  :: (TimeoutOptions a -> TimeoutOptions a)
+     -> Observable Async a
+     -> Observable Async a
 timeoutWith modFn source =
     Observable $ \observer -> do
       sourceDisposable <- newSingleAssignmentDisposable
@@ -103,6 +102,5 @@ timeoutWith modFn source =
         onCompleted_ = onCompleted observer
 
 timeout
-  :: IObservable source =>
-     TimeInterval -> source Async a -> Observable Async a
+  :: TimeInterval -> Observable Async a -> Observable Async a
 timeout interval = timeoutWith (timeoutDelay interval)

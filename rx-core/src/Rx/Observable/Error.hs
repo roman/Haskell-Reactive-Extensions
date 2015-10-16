@@ -7,8 +7,8 @@ import Rx.Disposable (newBooleanDisposable, setDisposable, toDisposable)
 
 import Rx.Observable.Types
 
-catch :: (IObservable source, Exception e)
-         => (e -> Observable s a) -> source s a -> Observable s a
+catch :: (Exception e)
+         => (e -> Observable s a) -> Observable s a -> Observable s a
 catch !errHandler !source =
     newObservable $ \observer -> do
       disposable <- newBooleanDisposable
@@ -35,13 +35,15 @@ catch !errHandler !source =
             Nothing -> onError observer err
 {-# INLINE catch #-}
 
-handle :: (IObservable source, Exception e)
-         => source s a -> (e -> Observable s a) -> Observable s a
+handle
+  :: (Exception e)
+     => Observable s a
+     -> (e -> Observable s a)
+     -> Observable s a
 handle = flip catch
 {-# INLINE handle #-}
 
-onErrorReturn :: (IObservable source)
-              => a -> source s a -> Observable s a
+onErrorReturn :: a -> Observable s a -> Observable s a
 onErrorReturn !val !source =
   newObservable $ \observer -> do
     subscribe source
@@ -52,8 +54,10 @@ onErrorReturn !val !source =
       (onCompleted observer)
 {-# INLINE onErrorReturn #-}
 
-onErrorResumeNext :: (IObservable errSource, IObservable source)
-              => errSource s a -> source s a -> Observable s a
+onErrorResumeNext
+  :: Observable s a
+     -> Observable s a
+     -> Observable s a
 onErrorResumeNext !errSource !source =
   newObservable $ \observer -> do
     sourceDisposable <- newBooleanDisposable
@@ -73,8 +77,7 @@ onErrorResumeNext !errSource !source =
     return $ toDisposable sourceDisposable
 {-# INLINE onErrorResumeNext #-}
 
-retry :: (IObservable source)
-      => Int -> source s a -> Observable s a
+retry :: Int -> Observable s a -> Observable s a
 retry !attempts !source =
     newObservable $ \observer -> do
       sourceDisposable <- newBooleanDisposable

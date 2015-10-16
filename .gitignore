@@ -1,6 +1,7 @@
+cabal.sandbox.config
 dist/
 .cabal-sandbox/
-cabal.sandbox.config
+.stack-work/
 log/
 *.eventlog
 *.org

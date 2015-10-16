@@ -1,4 +1,4 @@
-{-# LANGUAGE NoImplictPrelude #-}
+{-# LANGUAGE NoImplicitPrelude #-}
 module Rx.BinaryTest where
 
 import Prelude.Compat

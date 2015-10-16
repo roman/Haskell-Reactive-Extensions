@@ -7,11 +7,11 @@ import Data.IORef (atomicModifyIORef', newIORef, readIORef)
 
 import Rx.Observable.Types
 
-foldLeft :: IObservable source
-         => (acc -> a -> acc)
-         -> acc
-         -> source s a
-         -> Observable s acc
+foldLeft
+  :: (acc -> a -> acc)
+     -> acc
+     -> Observable s a
+     -> Observable s acc
 foldLeft foldFn acc0 source =
   Observable $ \observer -> do
       accVar <- newIORef acc0
@@ -29,10 +29,11 @@ foldLeft foldFn acc0 source =
             onNext observer acc
             onCompleted observer
 
-foldMap :: (IObservable source, Monoid b)
-        => (a -> b)
-        -> source s a
-        -> Observable s b
+foldMap
+  :: (Monoid b)
+     => (a -> b)
+     -> Observable s a
+     -> Observable s b
 foldMap toMonoid = foldLeft foldFn mempty
   where
     foldFn acc a = acc `mappend` toMonoid a

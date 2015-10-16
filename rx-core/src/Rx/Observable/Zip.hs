@@ -15,11 +15,11 @@ import Rx.Scheduler (Async)
 import Rx.Observable.Types
 
 
-zipWith :: (IObservable sourceA, IObservable sourceB)
-        => (a -> b -> c)
-        -> sourceA Async a
-        -> sourceB Async b
-        -> Observable Async c
+zipWith
+  :: (a -> b -> c)
+     -> Observable Async a
+     -> Observable Async b
+     -> Observable Async c
 zipWith zipFn sourceA sourceB = Observable $ \observer -> do
     queue1 <- newTQueueIO
     queue2 <- newTQueueIO
@@ -103,8 +103,8 @@ zipWith zipFn sourceA sourceB = Observable $ \observer -> do
             emptyQueues
             onCompleted observer
 
-zip :: (IObservable sourceA, IObservable sourceB)
-       => sourceA Async a
-       -> sourceB Async b
-       -> Observable Async (a,b)
+zip
+  :: Observable Async a
+     -> Observable Async b
+     -> Observable Async (a,b)
 zip = zipWith (\a b -> (a, b))

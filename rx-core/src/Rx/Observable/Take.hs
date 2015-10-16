@@ -13,9 +13,9 @@ import Rx.Scheduler (Async)
 
 import Rx.Observable.Types
 
-take :: IObservable observable
-     => Int
-     -> observable Async a
+take
+  :: Int
+     -> Observable Async a
      -> Observable Async a
 take n source = Observable $ \observer -> do
     sourceDisposable <- newSingleAssignmentDisposable
@@ -41,10 +41,10 @@ take n source = Observable $ \observer -> do
         onError_ = onError observer
         onCompleted_ = onCompleted observer
 
-takeWhileM :: IObservable observable
-            => (a -> IO Bool)
-            -> observable Async a
-            -> Observable Async a
+takeWhileM
+  :: (a -> IO Bool)
+     -> Observable Async a
+     -> Observable Async a
 takeWhileM predFn source = Observable $ \observer -> do
     sourceDisposable <- newSingleAssignmentDisposable
     subscription     <- main sourceDisposable observer
@@ -65,8 +65,8 @@ takeWhileM predFn source = Observable $ \observer -> do
         onError_ = onError observer
         onCompleted_ = onCompleted observer
 
-takeWhile :: IObservable observable
-          => (a -> Bool)
-          -> observable Async a
-          -> Observable Async a
+takeWhile
+  :: (a -> Bool)
+     -> Observable Async a
+     -> Observable Async a
 takeWhile predFn = takeWhileM (return . predFn)

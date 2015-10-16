@@ -7,17 +7,16 @@ import Control.Monad      (forever)
 
 import Tiempo (TimeInterval)
 
-import Rx.Scheduler (IScheduler, Sync, currentThread, scheduleTimedRecursive)
+import Rx.Scheduler (Scheduler, Sync, currentThread, scheduleTimedRecursive)
 
 import Rx.Observable.Types
 
 
-repeat' :: IScheduler scheduler => scheduler s -> IO a -> Observable s a
+repeat' :: Scheduler s -> IO a -> Observable s a
 repeat' scheduler action = newObservableScheduler scheduler $ \observer ->
   forever $ (action >>= onNext observer) >> yield
 
-repeatEvery' :: IScheduler scheduler
-                => scheduler s -> TimeInterval -> IO a -> Observable s a
+repeatEvery' :: Scheduler s -> TimeInterval -> IO a -> Observable s a
 repeatEvery' scheduler interval action = Observable $ \observer ->
   scheduleTimedRecursive scheduler interval $ do
     action >>= onNext observer

@@ -22,7 +22,7 @@ import Rx.Disposable (Disposable, dispose, emptyDisposable,
                       newSingleAssignmentDisposable, setDisposable,
                       toDisposable)
 
-import Rx.Scheduler (IScheduler, Sync, currentThread, newThread, schedule)
+import Rx.Scheduler (Scheduler, Sync, currentThread, newThread, schedule)
 import qualified Rx.Scheduler as Rx (Async)
 
 --------------------------------------------------------------------------------
@@ -82,7 +82,7 @@ data ConnectableObservable a
   = ConnectableObservable {
     _coOnSubscribe :: Observer a -> IO Disposable
   , _coConnect     :: IO ()
-  , _coDisconnect  :: IO ()
+  , _coDisconnect  :: Disposable
   }
 
 data TimeoutError
@@ -156,8 +156,7 @@ instance ToSyncObservable TChan where
 
 --------------------
 
-ioToObservable :: IScheduler scheduler
-               => scheduler s
+ioToObservable :: Scheduler s
                -> IO a
                -> Observable s a
 ioToObservable scheduler action =
@@ -182,12 +181,12 @@ instance ToSyncObservable IO where
 
 --------------------------------------------------------------------------------
 
-unsafeSubscribe :: (IObservable observable)
-          => observable s v
-          -> (v -> IO ())
-          -> (SomeException -> IO ())
-          -> IO ()
-          -> IO Disposable
+unsafeSubscribe
+  :: Observable s v
+     -> (v -> IO ())
+     -> (SomeException -> IO ())
+     -> IO ()
+     -> IO Disposable
 unsafeSubscribe !source !nextHandler !errHandler !complHandler =
     onSubscribe source $ Observer observerFn
   where
@@ -196,30 +195,31 @@ unsafeSubscribe !source !nextHandler !errHandler !complHandler =
     observerFn OnCompleted = complHandler
 {-# INLINE unsafeSubscribe #-}
 
-subscribe :: (IObservable observable)
-          => observable s v
-          -> (v -> IO ())
-          -> (SomeException -> IO ())
-          -> IO ()
-          -> IO Disposable
+subscribe
+  :: Observable s v
+     -> (v -> IO ())
+     -> (SomeException -> IO ())
+     -> IO ()
+     -> IO Disposable
 subscribe !source !nextHandler0 !errHandler0 !complHandler0 = do
-    completedVar <- newIORef False
+    completedRef <- newIORef False
     disposable   <- newSingleAssignmentDisposable
-    main completedVar disposable
+    main completedRef disposable
     return $ toDisposable disposable
   where
-    main completedVar disposable = do
+    main completedRef disposable = do
         disposable_ <-
           unsafeSubscribe source nextHandler errHandler complHandler
         setDisposable disposable disposable_
      where
-        checkCompletion = atomicModifyIORef' completedVar $ \wasCompleted ->
+        -- TODO: Use atomic-primops API here
+        checkCompletion = atomicModifyIORef' completedRef $ \wasCompleted ->
           if wasCompleted
             then (wasCompleted, False)
             else (True, True)
 
         nextHandler v = do
-          wasCompleted <- readIORef completedVar
+          wasCompleted <- readIORef completedRef
           unless wasCompleted $
               v `seq` nextHandler0 v
 
@@ -236,16 +236,16 @@ subscribe !source !nextHandler0 !errHandler0 !complHandler0 = do
             dispose disposable
 {-# INLINE subscribe #-}
 
-safeSubscribe :: IObservable observable
-  => observable s v
-  -> (v -> IO ())
-  -> (SomeException -> IO ())
-  -> IO ()
-  -> IO Disposable
+safeSubscribe
+  :: Observable s v
+    -> (v -> IO ())
+    -> (SomeException -> IO ())
+    -> IO ()
+    -> IO Disposable
 safeSubscribe !source nextHandler errHandler complHandler =
     subscribe (secureSource source) nextHandler errHandler complHandler
   where
-    secureSource :: IObservable source => source s v -> Observable s v
+    secureSource :: Observable s v -> Observable s v
     secureSource source' = Observable $ \observer ->
         main observer
       where
@@ -256,18 +256,15 @@ safeSubscribe !source nextHandler errHandler complHandler =
               onNext observer v `catches` [ Handler (\err@ThreadKilled -> throw err)
                                           , Handler (onError observer) ]
 
-
-subscribeOnNext :: (IObservable observable)
-                => observable s v
-                -> (v -> IO ())
-                -> IO Disposable
+subscribeOnNext
+  :: Observable s v
+     -> (v -> IO ())
+     -> IO Disposable
 subscribeOnNext !source !nextHandler =
   subscribe source nextHandler throwIO (return ())
 {-# INLINE subscribeOnNext #-}
 
-subscribeObserver
-  :: (IObservable observable, ToObserver observer)
-  => observable s a -> observer a -> IO Disposable
+subscribeObserver :: Observable s a -> Observer a -> IO Disposable
 subscribeObserver !source !observer0 =
   let observer = toObserver observer0
   in subscribe source
@@ -291,10 +288,10 @@ newObservable :: (Observer a -> IO Disposable) -> Observable s a
 newObservable = Observable
 {-# INLINE newObservable #-}
 
-newObservableScheduler :: IScheduler scheduler
-                 => scheduler s
-                 -> (Observer a -> IO Disposable)
-                 -> Observable s a
+newObservableScheduler
+  :: Scheduler s
+    -> (Observer a -> IO Disposable)
+    -> Observable s a
 newObservableScheduler !scheduler !action = newObservable $ \observer -> do
   actionDisposable <- newSingleAssignmentDisposable
   threadDisposable <-

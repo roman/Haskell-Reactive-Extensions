@@ -4,11 +4,11 @@ import Control.Concurrent (modifyMVar, newMVar)
 import Data.IORef (atomicModifyIORef', newIORef)
 import Rx.Observable.Types
 
-scanLeft :: IObservable source
-         => (acc -> a -> acc)
-         -> acc
-         -> source s a
-         -> Observable s acc
+scanLeft
+  :: (acc -> a -> acc)
+     -> acc
+     -> Observable s a
+     -> Observable s acc
 scanLeft foldFn acc0 source =
   Observable $ \observer -> do
       accVar <- newIORef acc0
@@ -26,11 +26,10 @@ scanLeft foldFn acc0 source =
           onCompleted_ = onCompleted observer
 
 scanLeftItem
-  :: IObservable source
-  => (acc -> a -> acc)
-  -> acc
-  -> source s a
-  -> Observable s (acc, a)
+  :: (acc -> a -> acc)
+     -> acc
+     -> Observable s a
+     -> Observable s (acc, a)
 scanLeftItem foldFn acc0 source =
   Observable $ \observer -> do
       accVar <- newIORef acc0
@@ -48,11 +47,10 @@ scanLeftItem foldFn acc0 source =
           onCompleted_ = onCompleted observer
 
 scanLeftItemM
-  :: IObservable source
-  => (acc -> a -> IO acc)
-  -> acc
-  -> source s a
-  -> Observable s (acc, a)
+  :: (acc -> a -> IO acc)
+     -> acc
+     -> Observable s a
+     -> Observable s (acc, a)
 scanLeftItemM foldFn acc0 source =
   Observable $ \observer -> do
       accVar <- newMVar acc0
