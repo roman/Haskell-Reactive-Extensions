@@ -28,7 +28,7 @@ instance IScheduler SingleThreadScheduler where
   timedSchedule = timedSchedule . _scheduler
 
 instance IDisposable (SingleThreadScheduler s) where
-  disposeWithResult = disposeWithResult . _disposable
+  disposeVerbose = disposeVerbose . _disposable
 
 instance ToDisposable (SingleThreadScheduler s) where
   toDisposable = _disposable

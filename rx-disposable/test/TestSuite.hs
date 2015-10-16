@@ -1,12 +1,15 @@
+{-# LANGUAGE NoImplicitPrelude #-}
 module Main where
 
-import Control.Monad (replicateM_, forM)
-import Control.Concurrent.STM (atomically, newTVarIO, modifyTVar, readTVar, writeTVar)
+import Prelude.Compat
 
-import Data.Monoid (mconcat)
+import Data.Monoid ((<>))
+
+import Control.Monad (replicateM_, forM)
+import Control.Concurrent.STM (atomically, newTVarIO, modifyTVar, readTVar)
 
 import Rx.Disposable
-import Test.Hspec 
+import Test.Hspec
 import Test.HUnit (assertEqual)
 
 main :: IO ()
@@ -14,9 +17,8 @@ main = hspec $ do
   describe "Disposable" $ do
     describe "mappend" $
       it "combines multiple disposables" $ do
-
-        setup <- forM [1..10] $ \index -> do
-          var <- newTVarIO 0
+        setup <- forM ([1..10] :: [Int]) $ \index -> do
+          var <- newTVarIO (0 :: Int)
           disposable <- newDisposable (show index) (atomically $ modifyTVar var succ)
           return (var, disposable)
 
@@ -24,7 +26,7 @@ main = hspec $ do
             disposable = mconcat disposables
 
         replicateM_ 10 (dispose disposable)
-        result <- disposeWithResult disposable
+        result <- disposeVerbose disposable
 
         -- ensure disposables weren't called more than once
         values <- mapM (atomically . readTVar) vars
@@ -35,18 +37,36 @@ main = hspec $ do
                     10
                     (disposeCount result)
 
+    describe "wrapDisposable" $
+      it "attaches error message to existing disposable" $ do
+        disp1 <- newDisposable "inner-1" (return ())
+        disp2 <- newDisposable "inner-2" (return ())
+        disp3 <- newDisposable "inner-3" (error "failed")
+
+
+        outerDisp <- wrapDisposable "outer" (disp1 <> disp2 <> disp3)
+        result <- disposeVerbose outerDisp
+
+        assertEqual "should have 3 entries" (disposeCount result) 3
+        assertEqual "should have complete description"
+                    [ "outer | inner-1"
+                    , "outer | inner-2"
+                    , "outer | inner-3" ]
+                    (map fst (disposeActionList result))
+
+
     describe "dispose" $
       it "calls action only once" $ do
-        accVar <- newTVarIO 0
+        accVar <- newTVarIO (0 :: Int)
         disposable <- newDisposable "" (atomically $ modifyTVar accVar succ)
         replicateM_ 10 (dispose disposable)
         count <- atomically $ readTVar accVar
         assertEqual "should not be more than 1" 1 count
 
-  describe "BooleanDisposable" $ do
-    describe "setDisposable" $ do
+  describe "BooleanDisposable" $
+    describe "setDisposable" $
       it "disposes previous disposable" $ do
-        accVar <- newTVarIO []
+        accVar <- newTVarIO ([] :: [Int])
         bd <- newBooleanDisposable
 
         disposable1 <- newDisposable "" (atomically $ modifyTVar accVar (1:))
@@ -62,8 +82,8 @@ main = hspec $ do
         acc2 <- atomically $ readTVar accVar
         assertEqual "dispose should call current disposable" [2, 1] acc2
 
-  describe "SingleAssignmentDisposable" $ do
-    describe "setDisposable" $ do
+  describe "SingleAssignmentDisposable" $
+    describe "setDisposable" $
       it "throws runtime error if set more than once" $ do
         sad <- newSingleAssignmentDisposable
         let errMsg = "ERROR: called 'setDisposable' more " ++
@@ -78,10 +98,10 @@ main = hspec $ do
 
   describe "ToDisposable" $
     it "allows composition of multiple Disposable types" $ do
-      sadFlag  <- newTVarIO 0
-      bdFlag   <- newTVarIO 0
-      dispFlag <- newTVarIO 0
-      
+      sadFlag  <- newTVarIO (0 :: Int)
+      bdFlag   <- newTVarIO (0 :: Int)
+      dispFlag <- newTVarIO (0 :: Int)
+
       sad <- newSingleAssignmentDisposable
       bd  <- newBooleanDisposable
 
@@ -99,14 +119,11 @@ main = hspec $ do
       replicateM_ 10 (dispose allDisposables)
       dispose allDisposables
 
-      result <- disposeWithResult allDisposables
-      assertEqual "disposeWithResult is not idempotent" 3 (disposeCount result) 
+      result0 <- disposeVerbose allDisposables
+      assertEqual "disposeVerbose is not idempotent" 3 (disposeCount result0)
 
-      result <- fmap sum
+      result1 <- fmap sum
                      (mapM (atomically . readTVar)
                            [sadFlag, bdFlag, dispFlag])
 
-      assertEqual "not calling all disposables only once" 3 result
-      
-      
-
+      assertEqual "not calling all disposables only once" 3 result1

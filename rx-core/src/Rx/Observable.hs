@@ -31,7 +31,7 @@ module Rx.Observable
 
        , Disposable
        , dispose
-       , disposeWithResult
+       , disposeVerbose
        , newDisposable
        , emptyDisposable
 
@@ -119,7 +119,7 @@ import qualified Rx.Observable.Throttle as Observable
 import qualified Rx.Observable.Timeout  as Observable
 import qualified Rx.Observable.Zip      as Observable
 
-import Rx.Disposable (Disposable, dispose, disposeWithResult, emptyDisposable, newDisposable)
+import Rx.Disposable (Disposable, dispose, disposeVerbose, emptyDisposable, newDisposable)
 import Rx.Scheduler (Async, IScheduler, Scheduler, Sync, currentThread,
                      newThread, schedule)
 

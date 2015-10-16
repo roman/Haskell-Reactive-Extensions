@@ -117,7 +117,6 @@ toFile !filepath !source = Observable $ \observer -> do
   return $ sourceDisposable <> fileDisposable
 {-# INLINE toFile #-}
 
-
 --------------------
 
 sepBy
@@ -143,7 +142,6 @@ sepBy !sepByte !source = Observable $ \observer -> do
                  $ \_ ->
                  let rest = appendPrev inputBS
                  in (BS.append rest, ())
-
 
         emitRemaining = do
           appendPrev <- readIORef bufferVar

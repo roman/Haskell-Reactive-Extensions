@@ -12,7 +12,7 @@ publish source = do
     let observable = toAsyncObservable subject
     return (ConnectableObservable (subscribeObserver observable)
                                   (connect_ subject sourceDisposable)
-                                  (dispose sourceDisposable >> onCompleted subject))
+                                  (dispose sourceDisposable))
   where
     connect_ subject sourceDisposable = do
       disposable <- subscribeObserver source subject

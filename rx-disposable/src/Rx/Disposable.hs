@@ -1,6 +1,6 @@
-{-# LANGUAGE NoImplicitPrelude          #-}
 {-# LANGUAGE DeriveDataTypeable         #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE NoImplicitPrelude          #-}
 module Rx.Disposable
        ( emptyDisposable
        , dispose
@@ -8,6 +8,7 @@ module Rx.Disposable
        , disposeErrorCount
        , disposeErrorList
        , disposeActionList
+       , wrapDisposable
        , newDisposable
        , newBooleanDisposable
        , newSingleAssignmentDisposable
@@ -20,14 +21,15 @@ module Rx.Disposable
        , DisposeResult
        ) where
 
-import Prelude.Compat
+import           Prelude.Compat
 
-import Control.Exception (SomeException, try)
-import Control.Monad (liftM, void)
-import Data.Typeable (Typeable)
+import           Control.Exception       (SomeException, try)
+import           Control.Monad           (liftM, void)
+import           Data.Monoid             ((<>))
+import           Data.Typeable           (Typeable)
 
-import Control.Concurrent.MVar (MVar, modifyMVar, newMVar, putMVar, readMVar,
-                                swapMVar, takeMVar)
+import           Control.Concurrent.MVar (MVar, modifyMVar, newMVar, putMVar,
+                                          readMVar, swapMVar, takeMVar)
 
 --------------------------------------------------------------------------------
 
@@ -52,7 +54,7 @@ newtype SingleAssignmentDisposable
 --------------------------------------------------------------------------------
 
 class IDisposable d where
-  disposeWithResult :: d -> IO DisposeResult
+  disposeVerbose :: d -> IO DisposeResult
 
 class ToDisposable d where
   toDisposable :: d -> Disposable
@@ -75,7 +77,7 @@ instance Monoid Disposable where
     Disposable (as ++ bs)
 
 instance IDisposable Disposable where
-  disposeWithResult (Disposable actions) =
+  disposeVerbose (Disposable actions) =
     mconcat `fmap` sequence actions
 
 instance ToDisposable Disposable where
@@ -84,29 +86,29 @@ instance ToDisposable Disposable where
 --------------------
 
 instance IDisposable BooleanDisposable where
-  disposeWithResult (BooleanDisposable disposableVar) = do
+  disposeVerbose (BooleanDisposable disposableVar) = do
     disposable <- readMVar disposableVar
-    disposeWithResult disposable
+    disposeVerbose disposable
 
 instance ToDisposable BooleanDisposable where
   toDisposable booleanDisposable  =
-    Disposable [disposeWithResult booleanDisposable]
+    Disposable [disposeVerbose booleanDisposable]
 
 instance SetDisposable BooleanDisposable where
   setDisposable (BooleanDisposable currentVar) disposable = do
     oldDisposable <- swapMVar currentVar disposable
-    void $ disposeWithResult oldDisposable
+    void $ disposeVerbose oldDisposable
 
 --------------------
 
 instance IDisposable SingleAssignmentDisposable where
-  disposeWithResult (SingleAssignmentDisposable disposableVar) = do
+  disposeVerbose (SingleAssignmentDisposable disposableVar) = do
     mdisposable <- readMVar disposableVar
-    maybe (return mempty) disposeWithResult mdisposable
+    maybe (return mempty) disposeVerbose mdisposable
 
 instance ToDisposable SingleAssignmentDisposable where
   toDisposable singleAssignmentDisposable =
-    Disposable [disposeWithResult singleAssignmentDisposable]
+    Disposable [disposeVerbose singleAssignmentDisposable]
 
 instance SetDisposable SingleAssignmentDisposable where
   setDisposable (SingleAssignmentDisposable disposableVar) disposable = do
@@ -140,7 +142,7 @@ disposeErrorCount = length . disposeErrorList
 --------------------
 
 dispose :: IDisposable disposable => disposable -> IO ()
-dispose = void . disposeWithResult
+dispose = void . disposeVerbose
 {-# INLINE dispose #-}
 
 emptyDisposable :: IO Disposable
@@ -158,7 +160,21 @@ newDisposable desc disposingAction = do
           disposingResult <- try disposingAction
           let result = DisposeResult [(desc, either Just (const Nothing) disposingResult)]
           return (Just result, result)]
-{-# INLINE newDisposable #-}
+
+wrapDisposable :: DisposableDescription -> Disposable -> IO Disposable
+wrapDisposable desc disposable = do
+  disposeResultVar <- newMVar Nothing
+  return $ Disposable
+    [modifyMVar disposeResultVar $ \disposeResult ->
+      case disposeResult of
+        Just result -> return (Just result, result)
+        Nothing ->  do
+          innerResult <- disposeVerbose disposable
+          let result = DisposeResult
+                        $ map (\(innerDesc, outcome) -> (desc <> " | " <> innerDesc, outcome))
+                              (fromDisposeResult innerResult)
+          return (Just result, result)]
+{-# INLINE wrapDisposable #-}
 
 newBooleanDisposable :: IO BooleanDisposable
 newBooleanDisposable =
