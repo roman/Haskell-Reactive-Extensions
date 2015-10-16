@@ -1,15 +1,15 @@
-machine:
-  ghc:
-    version: 7.8.3
-test:
+dependencies:
+  cache_directories:
+    - "~/.stack"
   pre:
-    - cabal update
-    - cabal sandbox init
-    - cabal sandbox add-source rx-disposable
-    - cabal sandbox add-source rx-scheduler
-    - cd rx-core && cabal sandbox init --sandbox=../.cabal-sandbox
-    - cd rx-core && cabal install --only-dependencies --enable-tests
-    - cd rx-core && cabal configure --enable-tests
-    - cd rx-core && cabal build
+    - mkdir -p ~/.stack
+    - wget https://github.com/commercialhaskell/stack/releases/download/v0.1.6.0/stack-0.1.6.0-linux-x86_64.tar.gz
+    - tar -xvzf stack-0.1.6.0-linux-x86_64.tar.gz && chmod 755 stack-0.1.6.0-linux-x86_64/stack
+    - sudo mv stack-0.1.6.0-linux-x86_64/stack /usr/bin/stack
   override:
-    - cd rx-core && cabal test
+    - stack setup
+    - stack build
+
+test:
+  override:
+    - stack test
