@@ -28,6 +28,18 @@ benchmark rx-core-bench
 test-suite rx-core-testsuite
   type: exitcode-stdio-1.0
   main-is: TestSuite.hs
+  other-modules:
+    Rx.Observable.ConcatTest,
+    Rx.Observable.DistinctTest,
+    Rx.Observable.DoTest,
+    Rx.Observable.ErrorTest,
+    Rx.Observable.FilterTest,
+    Rx.Observable.FirstTest,
+    Rx.Observable.FoldTest,
+    Rx.Observable.MergeTest,
+    Rx.Observable.TimeoutTest,
+    Rx.Observable.ZipTest,
+    Rx.Subject.PublishSubjectTest
   build-depends:
     base >=4.7 && <4.9,
     async,

@@ -37,6 +37,8 @@ library
 test-suite rx-extra-testsuite
   type: exitcode-stdio-1.0
   main-is: TestSuite.hs
+  other-modules:
+    Rx.BinaryTest
   build-depends:
     base >=4.7 && <4.9,
     async,
