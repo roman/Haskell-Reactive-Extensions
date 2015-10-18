@@ -114,7 +114,7 @@ instance SetDisposable SingleAssignmentDisposable where
   setDisposable (SingleAssignmentDisposable disposableVar) disposable = do
     mdisposable <- takeMVar disposableVar
     case mdisposable of
-      Nothing -> putMVar disposableVar $ Just disposable
+      Nothing -> putMVar disposableVar (Just disposable)
       Just _  -> error $ "ERROR: called 'setDisposable' more " ++
                          "than once on SingleAssignmentDisposable"
 

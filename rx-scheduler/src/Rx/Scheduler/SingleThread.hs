@@ -41,17 +41,17 @@ _singleThread fork = do
   tid <- fork $ forever $ do
     join $ atomically $ TChan.readTChan reqChan
     yield
-  disposable <- newDisposable "Scheduler.singleThread" $ killThread tid
-
+  disposable <- newDisposable "Scheduler.singleThread"
+                              (killThread tid)
   let scheduler =
         Scheduler {
           _immediateSchedule = \action -> do
-            atomically $ TChan.writeTChan reqChan action
+            atomically (TChan.writeTChan reqChan action)
             emptyDisposable
 
         , _timedSchedule = \interval innerAction -> do
             let action = threadDelay (toMicroSeconds interval) >> innerAction
-            atomically $ TChan.writeTChan reqChan action
+            atomically (TChan.writeTChan reqChan action)
             emptyDisposable
         }
 
