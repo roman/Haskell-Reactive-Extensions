@@ -26,4 +26,4 @@ publish source = do
 connect :: ConnectableObservable a -> IO Disposable
 connect obs = do
   _coConnect obs
-  wrapDisposable "ConnectableObservable" (_coDisconnect obs)
+  wrapDisposable "ConnectableObservable" (return (_coDisconnect obs))

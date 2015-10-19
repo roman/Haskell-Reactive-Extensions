@@ -161,14 +161,15 @@ newDisposable desc disposingAction = do
           let result = DisposeResult [(desc, either Just (const Nothing) disposingResult)]
           return (Just result, result)]
 
-wrapDisposable :: DisposableDescription -> Disposable -> IO Disposable
-wrapDisposable desc disposable = do
+wrapDisposable :: DisposableDescription -> IO Disposable -> IO Disposable
+wrapDisposable desc getDisposable = do
   disposeResultVar <- newMVar Nothing
   return $ Disposable
     [modifyMVar disposeResultVar $ \disposeResult ->
       case disposeResult of
         Just result -> return (Just result, result)
         Nothing ->  do
+          disposable <- getDisposable
           innerResult <- disposeVerbose disposable
           let result = DisposeResult
                         $ map (\(innerDesc, outcome) -> (desc <> " | " <> innerDesc, outcome))

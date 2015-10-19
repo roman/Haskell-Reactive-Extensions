@@ -44,7 +44,7 @@ main = hspec $ do
         disp3 <- newDisposable "inner-3" (error "failed")
 
 
-        outerDisp <- wrapDisposable "outer" (disp1 <> disp2 <> disp3)
+        outerDisp <- wrapDisposable "outer" (return (disp1 <> disp2 <> disp3))
         result <- disposeVerbose outerDisp
 
         assertEqual "should have 3 entries" (disposeCount result) 3
