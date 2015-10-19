@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleInstances          #-}
 {-# LANGUAGE DeriveDataTypeable         #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE NoImplicitPrelude          #-}
@@ -15,9 +16,10 @@ module Rx.Disposable
        , BooleanDisposable
        , Disposable
        , SingleAssignmentDisposable
-       , SetDisposable(..)
-       , ToDisposable(..)
-       , IDisposable(..)
+       , SetDisposable (..)
+       , ToDisposable (..)
+       , IDisposable (..)
+       , WrapDisposable (..)
        , DisposeResult
        ) where
 
@@ -61,6 +63,9 @@ class ToDisposable d where
 
 class SetDisposable d where
   setDisposable ::  d -> Disposable -> IO ()
+
+class WrapDisposable d where
+  wrapDisposable :: DisposableDescription -> d -> IO Disposable
 
 --------------------------------------------------------------------------------
 
@@ -161,21 +166,25 @@ newDisposable desc disposingAction = do
           let result = DisposeResult [(desc, either Just (const Nothing) disposingResult)]
           return (Just result, result)]
 
-wrapDisposable :: DisposableDescription -> IO Disposable -> IO Disposable
-wrapDisposable desc getDisposable = do
-  disposeResultVar <- newMVar Nothing
-  return $ Disposable
-    [modifyMVar disposeResultVar $ \disposeResult ->
-      case disposeResult of
-        Just result -> return (Just result, result)
-        Nothing ->  do
-          disposable <- getDisposable
-          innerResult <- disposeVerbose disposable
-          let result = DisposeResult
-                        $ map (\(innerDesc, outcome) -> (desc <> " | " <> innerDesc, outcome))
-                              (fromDisposeResult innerResult)
-          return (Just result, result)]
-{-# INLINE wrapDisposable #-}
+instance WrapDisposable (IO Disposable) where
+  wrapDisposable desc getDisposable = do
+    disposeResultVar <- newMVar Nothing
+    return $ Disposable
+      [modifyMVar disposeResultVar $ \disposeResult ->
+        case disposeResult of
+          Just result -> return (Just result, result)
+          Nothing ->  do
+            disposable <- getDisposable
+            innerResult <- disposeVerbose disposable
+            let result = DisposeResult
+                          $ map (\(innerDesc, outcome) -> (desc <> " | " <> innerDesc, outcome))
+                                (fromDisposeResult innerResult)
+            return (Just result, result)]
+  {-# INLINE wrapDisposable #-}
+
+instance WrapDisposable Disposable where
+  wrapDisposable desc disposable
+    = wrapDisposable desc (return disposable :: IO Disposable)
 
 newBooleanDisposable :: IO BooleanDisposable
 newBooleanDisposable =
