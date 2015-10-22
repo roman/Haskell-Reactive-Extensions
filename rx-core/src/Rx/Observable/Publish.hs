@@ -3,8 +3,7 @@ module Rx.Observable.Publish where
 
 import           Prelude.Compat
 
-import           Rx.Disposable       (Disposable, dispose,
-                                      newSingleAssignmentDisposable,
+import           Rx.Disposable       (Disposable, newSingleAssignmentDisposable,
                                       setDisposable, toDisposable,
                                       wrapDisposable)
 import           Rx.Observable.Types

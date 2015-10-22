@@ -1,23 +1,25 @@
+{-# LANGUAGE NoImplicitPrelude #-}
 module Rx.Observable.Merge where
 
-import Prelude hiding (mapM)
+import           Prelude.Compat
 
-import Control.Concurrent.MVar (newEmptyMVar, putMVar, readMVar)
-import Control.Concurrent.STM (atomically)
-import Control.Concurrent.STM.TVar (modifyTVar, newTVarIO, readTVar, writeTVar)
-import Control.Monad (void, when)
+import           Control.Concurrent.MVar     (newEmptyMVar, putMVar, readMVar)
+import           Control.Concurrent.STM      (atomically)
+import           Control.Concurrent.STM.TVar (modifyTVar, newTVarIO, readTVar,
+                                              writeTVar)
+import           Control.Monad               (void, when)
 
-import Data.Traversable (mapM)
-import Data.Unique (hashUnique, newUnique)
-import qualified Data.HashMap.Strict as HashMap
+import qualified Data.HashMap.Strict         as HashMap
+import           Data.Unique                 (hashUnique, newUnique)
 
-import Rx.Disposable (dispose, newDisposable, newSingleAssignmentDisposable,
-                      setDisposable)
+import           Rx.Disposable               (dispose, newDisposable,
+                                              newSingleAssignmentDisposable,
+                                              setDisposable, wrapDisposableIO)
 
-import Rx.Scheduler (Async, currentThread)
+import           Rx.Scheduler                (Async, currentThread)
 
-import Rx.Observable.Types
-import qualified Rx.Observable.List as Observable
+import qualified Rx.Observable.List          as Observable
+import           Rx.Observable.Types
 
 merge :: Observable s (Observable Async a)
       -> Observable Async a
@@ -38,10 +40,9 @@ merge sources = Observable $ \outerObserver -> do
         sourceSubDisposable <-
           subscribe sources sourceOnNext sourceOnError sourceOnCompleted
 
-        sourceDisposable <- newDisposable "Observable.merge" $ do
-          dispose sourceSubDisposable
-          disposableMap <- atomically $ readTVar disposableMapVar
-          void $ mapM dispose disposableMap
+        sourceDisposable <- wrapDisposableIO "Observable.merge" $ do
+          disposableMap <- atomically (readTVar disposableMapVar)
+          return (mconcat (sourceSubDisposable : HashMap.elems disposableMap))
 
         setDisposable mainDisposable sourceDisposable
         return sourceDisposable

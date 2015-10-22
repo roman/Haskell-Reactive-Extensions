@@ -1,6 +1,6 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
-{-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE NoImplicitPrelude #-}
 module Rx.Observable
        ( IScheduler
        , Scheduler
@@ -33,6 +33,7 @@ module Rx.Observable
        , dispose
        , disposeVerbose
        , newDisposable
+       , wrapDisposable
        , emptyDisposable
 
        , Observable.catch
@@ -91,12 +92,12 @@ module Rx.Observable
        , Observable.toEither
        ) where
 
-import Prelude.Compat
+import           Prelude.Compat
 
-import Control.Applicative (Alternative (..))
-import Control.Exception (ErrorCall (..), toException, try)
-import Control.Monad (MonadPlus (..))
-import Control.Monad.Trans (MonadIO(..))
+import           Control.Applicative    (Alternative (..))
+import           Control.Exception      (ErrorCall (..), toException, try)
+import           Control.Monad          (MonadPlus (..))
+import           Control.Monad.Trans    (MonadIO (..))
 
 import qualified Rx.Observable.Concat   as Observable
 import qualified Rx.Observable.Distinct as Observable
@@ -111,19 +112,21 @@ import qualified Rx.Observable.List     as Observable
 import qualified Rx.Observable.Map      as Observable
 import qualified Rx.Observable.Maybe    as Observable
 import qualified Rx.Observable.Merge    as Observable
+import qualified Rx.Observable.Publish  as Observable
 import qualified Rx.Observable.Repeat   as Observable
 import qualified Rx.Observable.Scan     as Observable
-import qualified Rx.Observable.Publish  as Observable
 import qualified Rx.Observable.Take     as Observable
 import qualified Rx.Observable.Throttle as Observable
 import qualified Rx.Observable.Timeout  as Observable
 import qualified Rx.Observable.Zip      as Observable
 
-import Rx.Disposable (Disposable, dispose, disposeVerbose, emptyDisposable, newDisposable)
-import Rx.Scheduler (Async, IScheduler, Scheduler, Sync, currentThread,
-                     newThread, schedule)
+import           Rx.Disposable          (Disposable, dispose, disposeVerbose,
+                                         emptyDisposable, newDisposable,
+                                         wrapDisposable)
+import           Rx.Scheduler           (Async, IScheduler, Scheduler, Sync,
+                                         currentThread, newThread, schedule)
 
-import Rx.Observable.Types
+import           Rx.Observable.Types
 
 instance Functor (Observable s) where
   fmap = Observable.map

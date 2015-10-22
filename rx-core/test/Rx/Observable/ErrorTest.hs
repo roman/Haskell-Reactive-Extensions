@@ -17,7 +17,7 @@ tests = do
       let
         source0 = (fail "this is an error") :: Rx.Observable Rx.Async Int
         source1 = (return 999) :: Rx.Observable Rx.Async Int
-        source = Rx.onErrorResumeNext source1 source0
+        source  = (Rx.onErrorResumeNext source1 source0)
 
       result <- Rx.toEither source
       case result of

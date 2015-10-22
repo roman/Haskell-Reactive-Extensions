@@ -16,7 +16,7 @@ import Test.HUnit
 import Test.Hspec
 
 assertError :: Exception e => String -> SomeException -> (e -> IO ()) -> IO ()
-assertError errMsg err assertion = do
+assertError errMsg err assertion =
   case fromException err of
     Just err' -> assertion err'
     Nothing   -> assertFailure errMsg
