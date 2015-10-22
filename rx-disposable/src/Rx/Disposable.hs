@@ -1,5 +1,5 @@
-{-# LANGUAGE FlexibleInstances          #-}
 {-# LANGUAGE DeriveDataTypeable         #-}
+{-# LANGUAGE FlexibleInstances          #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE NoImplicitPrelude          #-}
 module Rx.Disposable
@@ -7,27 +7,27 @@ module Rx.Disposable
        , dispose
        , disposeCount
        , disposeErrorCount
-       , disposeErrorList
-       , disposeActionList
-       , wrapDisposable
        , newDisposable
        , newBooleanDisposable
        , newSingleAssignmentDisposable
+       , toList
+       , wrapDisposable
+       , wrapDisposableIO
        , BooleanDisposable
        , Disposable
        , SingleAssignmentDisposable
        , SetDisposable (..)
        , ToDisposable (..)
        , IDisposable (..)
-       , WrapDisposable (..)
        , DisposeResult
        ) where
 
 import           Prelude.Compat
 
+import           Control.Arrow (first)
 import           Control.Exception       (SomeException, try)
 import           Control.Monad           (liftM, void)
-import           Data.Monoid             ((<>))
+-- import           Data.List               (foldl')
 import           Data.Typeable           (Typeable)
 
 import           Control.Concurrent.MVar (MVar, modifyMVar, newMVar, putMVar,
@@ -37,8 +37,10 @@ import           Control.Concurrent.MVar (MVar, modifyMVar, newMVar, putMVar,
 
 type DisposableDescription = String
 
-newtype DisposeResult
-  = DisposeResult { fromDisposeResult :: [(DisposableDescription, Maybe SomeException)] }
+data DisposeResult
+  = DisposeBranch DisposableDescription DisposeResult
+  | DisposeLeaf   DisposableDescription (Maybe SomeException)
+  | DisposeResult [DisposeResult]
   deriving (Show, Typeable)
 
 newtype Disposable
@@ -64,22 +66,22 @@ class ToDisposable d where
 class SetDisposable d where
   setDisposable ::  d -> Disposable -> IO ()
 
-class WrapDisposable d where
-  wrapDisposable :: DisposableDescription -> d -> IO Disposable
-
 --------------------------------------------------------------------------------
 
 instance Monoid DisposeResult where
   mempty = DisposeResult []
   (DisposeResult as) `mappend` (DisposeResult bs) =
-    DisposeResult $ as ++ bs
+    DisposeResult (as `mappend` bs)
+  a@(DisposeResult coll) `mappend` b = DisposeResult (coll ++ [b])
+  a `mappend` b@(DisposeResult coll) = DisposeResult (a:coll)
+  a `mappend` b = DisposeResult [a, b]
 
 --------------------
 
 instance Monoid Disposable where
   mempty  = Disposable []
   (Disposable as) `mappend` (Disposable bs) =
-    Disposable (as ++ bs)
+    Disposable (as `mappend` bs)
 
 instance IDisposable Disposable where
   disposeVerbose (Disposable actions) =
@@ -125,26 +127,44 @@ instance SetDisposable SingleAssignmentDisposable where
 
 --------------------------------------------------------------------------------
 
-disposeErrorList :: DisposeResult -> [(DisposableDescription, SomeException)]
-disposeErrorList = foldr accJust [] . fromDisposeResult
-  where
-    accJust (_, Nothing) acc = acc
-    accJust (desc, Just err) acc = (desc, err) : acc
-{-# INLINE disposeErrorList #-}
-
-disposeActionList :: DisposeResult -> [(DisposableDescription, Maybe SomeException)]
-disposeActionList = fromDisposeResult
-{-# INLINE disposeActionList #-}
+foldDisposeResult
+  :: (DisposableDescription -> Maybe SomeException -> acc -> acc)
+    -> (DisposableDescription -> acc -> acc)
+    -> ([acc] -> acc)
+    -> acc
+    -> DisposeResult
+    -> acc
+foldDisposeResult fLeaf _ _ acc (DisposeLeaf desc mErr) = fLeaf desc mErr acc
+foldDisposeResult fLeaf fBranch fList acc (DisposeBranch desc disposeResult) =
+  fBranch desc (foldDisposeResult fLeaf fBranch fList acc disposeResult)
+foldDisposeResult fLeaf fBranch fList acc (DisposeResult ds) =
+  let acc1 = map (foldDisposeResult fLeaf fBranch fList acc) ds
+  in fList acc1
 
 disposeCount :: DisposeResult -> Int
-disposeCount = length . fromDisposeResult
+disposeCount =
+  foldDisposeResult (\_ _ acc -> acc + 1)
+                    (const id)
+                    sum
+                    0
 {-# INLINE disposeCount #-}
 
 disposeErrorCount :: DisposeResult -> Int
-disposeErrorCount = length . disposeErrorList
+disposeErrorCount =
+  foldDisposeResult (\_ mErr acc -> acc + maybe 0 (const 1) mErr)
+                    (const id)
+                    sum
+                    0
 {-# INLINE disposeErrorCount #-}
 
---------------------
+toList
+  :: DisposeResult
+     -> [([DisposableDescription], Maybe SomeException)]
+toList =
+  foldDisposeResult (\desc res acc -> (([desc], res) : acc))
+                    (\desc acc -> map (first (desc :)) acc)
+                    concat
+                    []
 
 dispose :: IDisposable disposable => disposable -> IO ()
 dispose = void . disposeVerbose
@@ -163,28 +183,29 @@ newDisposable desc disposingAction = do
         Just result -> return (Just result, result)
         Nothing ->  do
           disposingResult <- try disposingAction
-          let result = DisposeResult [(desc, either Just (const Nothing) disposingResult)]
+          let result = DisposeLeaf desc (either Just (const Nothing) disposingResult)
           return (Just result, result)]
 
-instance WrapDisposable (IO Disposable) where
-  wrapDisposable desc getDisposable = do
-    disposeResultVar <- newMVar Nothing
-    return $ Disposable
-      [modifyMVar disposeResultVar $ \disposeResult ->
-        case disposeResult of
-          Just result -> return (Just result, result)
-          Nothing ->  do
-            disposable <- getDisposable
-            innerResult <- disposeVerbose disposable
-            let result = DisposeResult
-                          $ map (\(innerDesc, outcome) -> (desc <> " | " <> innerDesc, outcome))
-                                (fromDisposeResult innerResult)
-            return (Just result, result)]
-  {-# INLINE wrapDisposable #-}
+wrapDisposableIO
+  :: DisposableDescription
+     -> IO Disposable
+     -> IO Disposable
+wrapDisposableIO desc getDisposable = do
+  disposeResultVar <- newMVar Nothing
+  return $ Disposable
+    [modifyMVar disposeResultVar $ \disposeResult ->
+      case disposeResult of
+        Just result -> return (Just result, result)
+        Nothing ->  do
+          disposable  <- getDisposable
+          innerResult <- disposeVerbose disposable
+          let result = DisposeBranch desc innerResult
+          return (Just result, result)]
+{-# INLINE wrapDisposableIO #-}
 
-instance WrapDisposable Disposable where
-  wrapDisposable desc disposable
-    = wrapDisposable desc (return disposable :: IO Disposable)
+wrapDisposable :: DisposableDescription -> Disposable -> IO Disposable
+wrapDisposable desc = wrapDisposableIO desc . return
+{-# INLINE wrapDisposable #-}
 
 newBooleanDisposable :: IO BooleanDisposable
 newBooleanDisposable =

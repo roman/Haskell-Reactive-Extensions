@@ -43,16 +43,20 @@ main = hspec $ do
         disp2 <- newDisposable "inner-2" (return ())
         disp3 <- newDisposable "inner-3" (error "failed")
 
+        outerDisp1 <- wrapDisposable "outer-1" (disp1 <> disp2 <> disp3)
+        outerDisp2 <- newDisposable "outer-2" (return ())
 
-        outerDisp <- wrapDisposable "outer" (disp1 <> disp2 <> disp3)
-        result <- disposeVerbose outerDisp
+        let resultDisp = outerDisp1 <> outerDisp2
+        result <- disposeVerbose resultDisp
 
-        assertEqual "should have 3 entries" (disposeCount result) 3
-        assertEqual "should have complete description"
-                    [ "outer | inner-1"
-                    , "outer | inner-2"
-                    , "outer | inner-3" ]
-                    (map fst (disposeActionList result))
+        assertEqual "should have 3 entries" (disposeCount result) 4
+        assertEqual "should have complete description" (disposeErrorCount result) 1
+        assertEqual "should list descriptions correctly"
+                    [ ["outer-1", "inner-1"]
+                    , ["outer-1", "inner-2"]
+                    , ["outer-1", "inner-3"]
+                    , ["outer-2"] ]
+                    (map fst (toList result))
 
 
     describe "dispose" $
